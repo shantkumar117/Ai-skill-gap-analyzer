@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Analyze Skills | AI Skill Gap Analyzer{% endblock %}
+{% block content %}
+<section class="form-intro"><p class="eyebrow">Step 01 / Skill profile</p><h1>Where are you headed?</h1><p>Tell us a little about yourself. We will turn it into a focused plan.</p></section>
+<form class="analysis-form" method="post" action="{{ url_for('analyze') }}">
+  <div class="form-grid">
+    <label>Your name<input type="text" name="name" placeholder="e.g. Priya Sharma" required></label>
+    <label>Experience level<select name="experience_level" required><option value="">Choose level</option>{% for level in experience_levels %}<option>{{ level }}</option>{% endfor %}</select></label>
+  </div>
+  <label>Target job role<select name="target_role" required><option value="">Choose a role</option>{% for role in roles %}<option>{{ role }}</option>{% endfor %}</select></label>
+  <label>Current skills <span class="hint">Separate skills with commas</span><textarea name="current_skills" rows="5" placeholder="Python, SQL, Git" required></textarea></label>
+  <div class="skill-examples"><span>Popular examples</span><button type="button" data-skill="Python">Python</button><button type="button" data-skill="HTML">HTML</button><button type="button" data-skill="CSS">CSS</button><button type="button" data-skill="JavaScript">JavaScript</button><button type="button" data-skill="SQL">SQL</button></div>
+  <button class="button button-primary submit-button" type="submit">Analyze My Skill Gap <span aria-hidden="true">-></span></button>
+</form>
+{% endblock %}

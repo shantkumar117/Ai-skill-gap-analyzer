@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Home | AI Skill Gap Analyzer{% endblock %}
+{% block content %}
+<section class="hero-section">
+  <div class="hero-copy">
+    <p class="eyebrow">Career clarity, one skill at a time</p>
+    <h1>Turn your current skills into a clear next step.</h1>
+    <p class="hero-text">Compare what you know with the skills needed for your dream software role. Get a practical learning order and project ideas in seconds.</p>
+    <a class="button button-primary" href="{{ url_for('analyze') }}">Start Analysis <span aria-hidden="true">-></span></a>
+  </div>
+  <div class="hero-panel" aria-label="Application preview">
+    <div class="mini-label">YOUR CAREER SNAPSHOT</div>
+    <div class="mini-score">72<span>%</span></div>
+    <div class="mini-caption">Example skill match</div>
+    <div class="mini-bar"><span></span></div>
+    <div class="mini-tags"><span>Python</span><span>SQL</span><span>REST API</span></div>
+  </div>
+</section>
+<section class="feature-grid">
+  <article><span class="feature-number">01</span><h2>Choose a direction</h2><p>Select from eight common software career paths.</p></article>
+  <article><span class="feature-number">02</span><h2>See the gap</h2><p>Understand your strengths and the missing building blocks.</p></article>
+  <article><span class="feature-number">03</span><h2>Take action</h2><p>Follow a personalized order with projects you can actually build.</p></article>
+</section>
+{% endblock %}
