@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Resume Analysis | AI Skill Gap Analyzer{% endblock %}
+{% block content %}
+<section class="form-intro">
+  <p class="eyebrow">Step 01 / Upload Resume</p>
+  <h1>Analyze your resume.</h1>
+  <p>Upload your resume (PDF, DOCX, TXT) or paste your experience below to get a combined ATS review and personalized growth roadmap.</p>
+</section>
+
+<form class="analysis-form" method="post" action="{{ url_for('resume_analysis') }}" enctype="multipart/form-data">
+  <label>Target job role
+    <select name="target_role" required>
+      <option value="">Choose a role</option>
+      {% for role in roles %}<option>{{ role }}</option>{% endfor %}
+    </select>
+  </label>
+
+  <label>Or type a custom role <span class="hint">e.g. AI Engineer, DevOps Lead</span>
+    <input type="text" name="custom_role" placeholder="Try any role ...">
+  </label>
+
+  <label>Upload Resume <span class="hint">PDF, DOCX, TXT</span>
+    <input type="file" name="resume_file" accept=".pdf,.docx,.txt">
+  </label>
+
+  <label>Or Paste Resume Text <span class="hint">Fallback</span>
+    <textarea name="resume_text" rows="6" placeholder="Paste your resume content here..."></textarea>
+  </label>
+
+  <button class="button button-primary submit-button" type="submit">Analyze Resume & Roadmap <span aria-hidden="true">→</span></button>
+</form>
+{% endblock %}

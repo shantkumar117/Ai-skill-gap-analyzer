@@ -1,9 +1,323 @@
 {% extends 'base.html' %}
 {% block title %}Your Dashboard | AI Skill Gap Analyzer{% endblock %}
 {% block content %}
-<section class="dashboard-heading"><div><p class="eyebrow">Your personalized report</p><h1>{{ data.name }}, here is your roadmap.</h1><p>{{ data.role }} <span class="dot">•</span> {{ data.experience }} level</p></div><a class="button button-secondary" href="{{ url_for('analyze') }}">New analysis</a></section>
-<section class="metric-grid"><article class="metric-card accent-card"><span>Overall match</span><strong>{{ data.match_percentage }}<small>%</small></strong><div class="progress-track"><div class="progress-fill" style="width: {{ data.match_percentage }}%"></div></div><p>{{ data.have|length }} of {{ data.required_skills|length }} role skills covered</p></article><article class="metric-card"><span>Skills you have</span><strong>{{ data.have|length }}</strong><p class="muted">Relevant skills matched</p></article><article class="metric-card"><span>Skills to build</span><strong>{{ data.missing|length }}</strong><p class="muted">{{ data.gap_percentage }}% current gap</p></article></section>
-<div class="dashboard-grid"><section class="dashboard-card chart-card"><div class="card-heading"><div><p class="eyebrow">Skill coverage</p><h2>Strengths vs. opportunities</h2></div></div><div class="chart-wrap"><canvas id="skillChart" data-have="{{ data.have|length }}" data-missing="{{ data.missing|length }}"></canvas></div></section><section class="dashboard-card"><p class="eyebrow">Your toolkit</p><h2>Skills you have</h2><div class="tag-list">{% for skill in data.have %}<span class="tag tag-green">{{ skill }}</span>{% else %}<p class="muted">No matching skills yet. Your first step is waiting below.</p>{% endfor %}</div><h2 class="section-gap">Missing skills</h2><div class="tag-list">{% for skill in data.missing %}<span class="tag tag-orange">{{ skill }}</span>{% else %}<p class="muted">Excellent, you cover every listed skill.</p>{% endfor %}</div></section></div>
-<div class="dashboard-grid lower-grid"><section class="dashboard-card"><p class="eyebrow">Priority map</p><h2>What to learn first</h2><div class="priority-block"><h3><span class="priority-dot high"></span>High priority</h3><div class="tag-list">{% for skill in data.high_priority %}<span class="tag tag-orange">{{ skill }}</span>{% else %}<span class="muted">Nothing urgent here.</span>{% endfor %}</div></div><div class="priority-block"><h3><span class="priority-dot medium"></span>Medium priority</h3><div class="tag-list">{% for skill in data.medium_priority %}<span class="tag tag-yellow">{{ skill }}</span>{% else %}<span class="muted">Nothing urgent here.</span>{% endfor %}</div></div></section><section class="dashboard-card recommendation-card"><p class="eyebrow">AI-powered guidance</p><h2>Your recommended order</h2><ol class="recommendations">{% for recommendation in data.recommendations %}<li>{{ recommendation }}</li>{% endfor %}</ol></section></div>
-<section class="dashboard-card roadmap-card"><div><p class="eyebrow">Build while you learn</p><h2>Mini-projects for your portfolio</h2></div><div class="project-list">{% for project in data.projects %}<div class="project-item"><span class="project-icon">{{ "%02d"|format(loop.index) }}</span><p>{{ project }}</p></div>{% endfor %}</div><div class="roadmap-note"><strong>Simple roadmap</strong><span>Learn the high-priority basics</span><span>Practice with a mini-project</span><span>Publish and explain your work</span></div></section>
+<section class="dashboard-heading">
+  <div>
+    <div class="heading-meta">
+      <p class="eyebrow">Your personalized roadmap</p>
+      {% if data.ai_mode %}
+        <span class="ai-badge"><span class="ai-badge-pulse"></span>AI Generated ({{ data.ai_provider }})</span>
+      {% else %}
+        <span class="ai-badge offline"><span class="ai-badge-dot"></span>Structured Synthesis</span>
+      {% endif %}
+    </div>
+    <h1>{{ data.name }}, here is your tailored growth plan.</h1>
+    <p class="subtitle">{{ data.role }} <span class="dot">•</span> {{ data.experience }} level{% if data.career_goal %} <span class="dot">•</span> Focus: <em>{{ data.career_goal }}</em>{% endif %}</p>
+  </div>
+  <div class="heading-actions">
+    <a class="button button-secondary" href="{{ url_for('analyze') }}">New analysis</a>
+  </div>
+</section>
+
+<!-- Strategic Assessment Banner -->
+{% if data.recommendations and data.recommendations.summary %}
+<section class="summary-banner">
+  <div class="summary-icon">💡</div>
+  <div class="summary-content">
+    <h3>Strategic Assessment</h3>
+    <p>{{ data.recommendations.summary }}</p>
+  </div>
+</section>
+{% endif %}
+
+<!-- Resume Review Section (only for resume analysis) -->
+{% if data.resume_review %}
+<section class="resume-review-section">
+  <div class="resume-review-grid">
+    <div class="resume-card strengths">
+      <h4>✓ Resume Strengths</h4>
+      <ul>
+        {% for item in data.resume_review.strengths %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="resume-card weaknesses">
+      <h4>⚠ Areas to Improve</h4>
+      <ul>
+        {% for item in data.resume_review.weaknesses %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="resume-card ats">
+      <h4>🎯 Missing ATS Keywords</h4>
+      <div class="tag-list">
+        {% for keyword in data.resume_review.ats_keywords_missing %}
+          <span class="tag tag-red">{{ keyword }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="resume-card formatting">
+      <h4>📝 Formatting Notes</h4>
+      <p>{{ data.resume_review.formatting_notes }}</p>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<!-- Top Metrics -->
+<section class="metric-grid">
+  <article class="metric-card accent-card">
+    <span>Overall match</span>
+    <strong>{{ data.match_percentage }}<small>%</small></strong>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: {{ data.match_percentage }}%"></div>
+    </div>
+    <p>{{ data.have|length }} of {{ data.required_skills|length }} role skills covered</p>
+  </article>
+  <article class="metric-card">
+    <span>Skills you have</span>
+    <strong>{{ data.have|length }}</strong>
+    <p class="muted">Relevant competencies matched</p>
+  </article>
+  <article class="metric-card">
+    <span>Skills to build</span>
+    <strong>{{ data.missing|length }}</strong>
+    <p class="muted">{{ data.gap_percentage }}% remaining gap</p>
+  </article>
+</section>
+
+<!-- Skill Breakdown & Visualization -->
+<div class="dashboard-grid">
+  <section class="dashboard-card chart-card">
+    <div class="card-heading">
+      <div>
+        <p class="eyebrow">Skill coverage</p>
+        <h2>Strengths vs. opportunities</h2>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="skillChart" data-have="{{ data.have|length }}" data-missing="{{ data.missing|length }}"></canvas>
+    </div>
+  </section>
+
+  <section class="dashboard-card">
+    <p class="eyebrow">Your toolkit</p>
+    <h2>Skills you have</h2>
+    <div class="tag-list">
+      {% for skill in data.have %}
+        <span class="tag tag-green">✓ {{ skill }}</span>
+      {% else %}
+        <p class="muted">No matching skills yet. Your foundational pathway is outlined below.</p>
+      {% endfor %}
+    </div>
+
+    <h2 class="section-gap">Skills to acquire</h2>
+    <div class="tag-list">
+      {% for skill in data.missing %}
+        <span class="tag tag-orange">+ {{ skill }}</span>
+      {% else %}
+        <p class="muted">Outstanding! You cover every core required skill for this role.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<!-- Phased Learning Pathway -->
+{% if data.recommendations and data.recommendations.learning_pathway %}
+<section class="dashboard-card section-card">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Step-by-step roadmap</p>
+      <h2>Phased Learning Pathway</h2>
+    </div>
+    <span class="badge-sub">Sequenced for maximum retention</span>
+  </div>
+
+  <div class="pathway-grid">
+    {% for phase in data.recommendations.learning_pathway %}
+    <div class="phase-card">
+      <div class="phase-header">
+        <span class="phase-num">0{{ loop.index }}</span>
+        <span class="phase-duration">{{ phase.duration }}</span>
+      </div>
+      <h3>{{ phase.phase }}</h3>
+      <p class="phase-desc">{{ phase.description }}</p>
+      <ul class="phase-tasks">
+        {% for task in phase.tasks %}
+          <li>{{ task }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Targeted Skill Action Plans -->
+{% if data.recommendations and data.recommendations.skill_action_plans %}
+<section class="dashboard-card section-card">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Deep dive</p>
+      <h2>Targeted Skill Action Plans</h2>
+    </div>
+    <span class="badge-sub">{{ data.recommendations.skill_action_plans|length }} skills analyzed</span>
+  </div>
+
+  <div class="action-plan-grid">
+    {% for plan in data.recommendations.skill_action_plans %}
+    <div class="action-plan-card">
+      <div class="plan-header">
+        <h3>{{ plan.skill }}</h3>
+        <div class="plan-badges">
+          <span class="priority-pill {{ plan.priority|lower }}">{{ plan.priority }} Priority</span>
+          <span class="hours-pill">⏱ {{ plan.estimated_hours }}</span>
+        </div>
+      </div>
+
+      {% if plan.core_concepts %}
+      <div class="plan-section">
+        <strong>Key Concepts to Master:</strong>
+        <div class="concept-tags">
+          {% for concept in plan.core_concepts %}
+            <span class="concept-tag">{{ concept }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if plan.practical_exercise %}
+      <div class="plan-section plan-exercise">
+        <strong>⚡ Practical Exercise:</strong>
+        <p>{{ plan.practical_exercise }}</p>
+      </div>
+      {% endif %}
+
+      {% if plan.recommended_resources %}
+      <div class="plan-section plan-resource">
+        <strong>📚 Recommended Resources:</strong>
+        <p class="muted">{{ plan.recommended_resources }}</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- AI-Tailored Portfolio Projects -->
+{% if data.recommendations and data.recommendations.portfolio_projects %}
+<section class="dashboard-card section-card">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Hands-on evidence</p>
+      <h2>Custom Portfolio Project Blueprints</h2>
+    </div>
+    <span class="badge-sub">Combines your existing & new skills</span>
+  </div>
+
+  <div class="custom-project-grid">
+    {% for proj in data.recommendations.portfolio_projects %}
+    <div class="custom-project-card">
+      <div class="proj-header">
+        <span class="proj-diff">{{ proj.difficulty }}</span>
+        <h3>{{ proj.title }}</h3>
+      </div>
+      <p class="proj-desc">{{ proj.description }}</p>
+
+      {% if proj.skills_used %}
+      <div class="proj-skills">
+        <strong>Tech Stack:</strong>
+        <div class="tag-list">
+          {% for s in proj.skills_used %}
+            <span class="tag tag-blue">{{ s }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if proj.key_features %}
+      <div class="proj-features">
+        <strong>Key Deliverables:</strong>
+        <ul>
+          {% for f in proj.key_features %}
+            <li>{{ f }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Priority Map & Interview Readiness Grid -->
+<div class="dashboard-grid lower-grid">
+  <section class="dashboard-card">
+    <p class="eyebrow">Priority map</p>
+    <h2>What to learn first</h2>
+    <div class="priority-block">
+      <h3><span class="priority-dot high"></span>High priority</h3>
+      <div class="tag-list">
+        {% for skill in data.high_priority %}
+          <span class="tag tag-orange">{{ skill }}</span>
+        {% else %}
+          <span class="muted">No urgent high-priority gaps.</span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="priority-block">
+      <h3><span class="priority-dot medium"></span>Medium priority</h3>
+      <div class="tag-list">
+        {% for skill in data.medium_priority %}
+          <span class="tag tag-yellow">{{ skill }}</span>
+        {% else %}
+          <span class="muted">No medium-priority gaps.</span>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="dashboard-card interview-card">
+    <p class="eyebrow">Career readiness</p>
+    <h2>Interview & Hiring Insights</h2>
+    {% if data.recommendations and data.recommendations.interview_tips %}
+      <ul class="interview-tips-list">
+        {% for tip in data.recommendations.interview_tips %}
+          <li>{{ tip }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <ol class="recommendations">
+        {% if data.recommendations is iterable and data.recommendations is not mapping %}
+          {% for recommendation in data.recommendations %}
+            <li>{{ recommendation }}</li>
+          {% endfor %}
+        {% elif data.recommendations and data.recommendations.recommendations_list %}
+          {% for recommendation in data.recommendations.recommendations_list %}
+            <li>{{ recommendation }}</li>
+          {% endfor %}
+        {% endif %}
+      </ol>
+    {% endif %}
+  </section>
+</div>
+
+<!-- Bottom Roadmap Checklist -->
+<section class="dashboard-card roadmap-card">
+  <div>
+    <p class="eyebrow">Your execution formula</p>
+    <h2>Three golden rules for success</h2>
+  </div>
+  <div class="roadmap-note">
+    <strong>Execution Roadmap:</strong>
+    <span>1. Master high-priority building blocks</span>
+    <span>2. Build & deploy your custom portfolio project</span>
+    <span>3. Explain architectural decisions in interviews</span>
+  </div>
+</section>
 {% endblock %}
+
