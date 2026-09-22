@@ -1455,14 +1455,23 @@ def pdf_report(analysis_id):
         flash("Result not found.", "warning")
         return redirect(url_for("profile"))
     data = json.loads(row["result_json"])
-    # Use Weasyprint (already installed); base_url ensures static assets resolve
-    from weasyprint import HTML
     html_str = render_template("report_pdf.html", data=data)
-    pdf_bytes = HTML(string=html_str, base_url=".").write_pdf()
-    response = make_response(pdf_bytes)
-    response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_" + str(analysis_id) + ".pdf"
-    return response
+    # Pure-python PDF generation; avoids Weasyprint GTK dependency
+    try:
+        from xhtml2pdf import pisa
+        pdf_bytes = pisa.CreatePDF(html_str, dest=None)
+        if pdf_bytes and isinstance(pdf_bytes, bytes) and len(pdf_bytes) > 100:
+            resp = make_response(pdf_bytes)
+            resp.headers["Content-Type"] = "application/pdf"
+            resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
+            return resp
+    except Exception:
+        pass
+    # Final fallback: serve rendered page as HTML download (browser Print -> Save as PDF)
+    resp = make_response(html_str)
+    resp.headers["Content-Type"] = "text/html"
+    resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.html"
+    return resp
 
 @app.route("/export/csv/<int:user_id>")
 def export_csv(user_id):
