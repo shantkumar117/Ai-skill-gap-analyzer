@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}Profile | AI Skill Gap Analyzer{% endblock %}
+{% block content %}
+<div class="profile-page">
+  <!-- Sidebar -->
+  <aside class="profile-sidebar">
+    <div class="profile-avatar-wrap">
+      <div class="profile-avatar">{{ session.username[:1]|upper }}</div>
+      <h2>{{ session.username }}</h2>
+      <p class="profile-meta">Member since signup</p>
+    </div>
+    <nav class="profile-nav">
+      <a href="#info" class="nav-link active" onclick="showSection('info')">Account</a>
+      <a href="#history" class="nav-link" onclick="showSection('history')">History</a>
+      <a href="#actions" class="nav-link" onclick="showSection('actions')">Actions</a>
+    </nav>
+  </aside>
+
+  <!-- Main card -->
+  <main class="profile-main">
+    <section id="info" class="profile-card profile-section" style="display:block;">
+      <h3>Account</h3>
+      <div class="profile-row"><span>Username</span><strong>{{ session.username }}</strong></div>
+      <div class="profile-row"><span>User ID</span><strong>{{ session.user_id }}</strong></div>
+    </section>
+
+    <section id="history" class="profile-card profile-section" style="display:none;">
+      <h3>Saved Analyses</h3>
+      <div style="background:var(--surface);padding:12px;border-radius:8px;margin-bottom:12px;font-size:.9rem;color:var(--muted);">
+        <strong>Auto-cleanup:</strong> Analyses older than 30 days are deleted automatically.<br>
+        <strong>Keep permanently:</strong> Click <em>Keep</em> in the action column to protect a history item.
+      </div>
+      {% if analyses %}
+      <div style="display:flex;flex-direction:column;gap:12px;">
+      {% for a in analyses %}
+      <div style="background:var(--card-surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div style="flex:1 1 200px;min-width:160px;">
+          <div style="font-weight:600;font-size:.95rem;color:var(--ink);">{{ a.role }} {% if a.keep_forever %}<span style="font-size:.7rem;background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;margin-left:4px;">Kept</span>{% endif %}</div>
+          <div style="font-size:.82rem;color:var(--muted);">Match <strong style="color:var(--ink);">{{ a.match_percentage }}%</strong> · {{ a.missing_skills_display }}</div>
+        </div>
+        <div style="font-size:.82rem;color:var(--muted);white-space:nowrap;">{{ a.analysis_date }}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <a href="{{ url_for('analysis_detail', analysis_id=a.analysis_id) }}" class="button button-small button-secondary" style="text-decoration:none;">Open</a>
+          <form method="post" action="{{ url_for('keep_analysis_route', analysis_id=a.analysis_id) }}" style="margin:0;display:inline;" onsubmit="this.querySelector('button').textContent='Kept';this.querySelector('button').disabled=true;this.querySelector('button').style.background='#dcfce7';this.querySelector('button').style.borderColor='#86efac';this.querySelector('button').style.color='#166534';return true;">
+            <button type="submit" class="button button-small button-secondary" style="background:#e0f2fe;border-color:#bae6fd;color:#0369a1;">Keep</button>
+          </form>
+          <form method="post" action="{{ url_for('delete_analysis_route', analysis_id=a.analysis_id) }}" style="margin:0;display:inline;" class="del-form">
+            <button type="button" class="button button-small button-danger" onclick="openDel(this)">Delete</button>
+            <span class="del-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.35);z-index:9999;align-items:center;justify-content:center;">
+              <div style="background:#fff;border:2px solid #991b1b;border-radius:14px;padding:28px 32px;max-width:360px;box-shadow:0 25px 80px rgba(0,0,0,.35);font-family:system-ui,sans-serif;text-align:center;">
+                <h3 style="margin:0 0 10px;font-size:1.2rem;color:#991b1b;font-weight:700;">Delete this history?</h3>
+                <p style="margin:0 0 22px;font-size:1rem;color:#374151;line-height:1.5;">This will permanently remove the saved analysis and cannot be undone.</p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                  <button type="button" onclick="closeDel(this)" style="padding:10px 18px;border-radius:8px;border:1.5px solid #991b1b;background:#fff;color:#991b1b;font-size:.95rem;font-weight:600;cursor:pointer;">Cancel</button>
+                  <button type="submit" style="padding:10px 18px;border-radius:8px;border:0;background:#991b1b;color:#fff;font-size:.95rem;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(153,27,27,.35);">Confirm Delete</button>
+                </div>
+              </div>
+            </span>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">No saved analyses yet.</p>
+      {% endif %}
+    </section>
+
+    <section id="actions" class="profile-card profile-actions" style="display:none;">
+      <h3>Account Actions</h3>
+      <a class="button button-secondary" href="#" onclick="alert('Change password feature coming soon')">Change Password</a>
+      <form method="post" action="{{ url_for('profile') }}" style="display:inline;" onsubmit="return confirm('Delete account permanently?');">
+        <input type="hidden" name="delete_account" value="1">
+        <button class="button button-danger" type="submit">Delete Account</button>
+      </form>
+    </section>
+  </main>
+  <script>
+    function showSection(id) {
+      document.querySelectorAll('.profile-section').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+      const sec = document.getElementById(id);
+      if (sec) sec.style.display = 'block';
+      const nav = document.querySelector('.nav-link[onclick="showSection(\''+id+'\')"]');
+      if (nav) nav.classList.add('active');
+    }
+    function openDel(btn) {
+      btn.closest('.del-form').querySelector('.del-modal').style.display = 'flex';
+    }
+    function closeDel(btn) {
+      btn.closest('.del-modal').style.display = 'none';
+    }
+    if (window.location.hash === '#history') showSection('history');
+    // In-built confirmation for delete buttons
+    function confirmDelete(btn) {
+      const card = btn.closest('.delete-form').closest('div');
+      if (card.querySelector('.delete-confirm')) return; // already open
+      const confirmDiv = document.createElement('div');
+      confirmDiv.className = 'delete-confirm';
+      confirmDiv.style.cssText = 'display:inline-flex;gap:6px;align-items:center;';
+      confirmDiv.innerHTML = '<span style="font-size:.82rem;color:var(--muted);">Confirm?</span><button type="button" onclick="doDelete(this.closest(\'.delete-confirm\').previousElementSibling)" style="padding:3px 8px;border-radius:4px;border:0;background:#fecaca;color:#991b1b;font-size:.78rem;cursor:pointer;">Yes</button><button type="button" onclick="this.closest(\'.delete-confirm\').remove()" style="padding:3px 8px;border-radius:4px;border:0;background:var(--surface);color:var(--ink);font-size:.78rem;cursor:pointer;">Cancel</button>';
+      btn.parentElement.insertBefore(confirmDiv, btn.nextSibling);
+      btn.style.display = 'none';
+    }
+    function doDelete(form) {
+      form.querySelector('button.delete-btn').style.display = 'inline';
+      form.querySelector('.delete-confirm').remove();
+      form.submit();
+    }
+  </script>
+</div>
+{% endblock %}

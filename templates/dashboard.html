@@ -5,10 +5,15 @@
   <div>
     <div class="heading-meta">
       <p class="eyebrow">Your personalized roadmap</p>
-      {% if data.ai_mode %}
+      {% if data.ai_mode and data.recommendations %}
         <span class="ai-badge"><span class="ai-badge-pulse"></span>AI Generated ({{ data.ai_provider }})</span>
+      {% elif data.ai_mode %}
+        <span class="ai-badge"><span class="ai-badge-pulse"></span>AI Generated</span>
       {% else %}
         <span class="ai-badge offline"><span class="ai-badge-dot"></span>Structured Synthesis</span>
+      {% endif %}
+      {% if not session.get('user_id') %}
+        <span class="badge-sub unlock-badge">🔒 Sign up to unlock full recommendations, portfolio projects, and export</span>
       {% endif %}
     </div>
     <h1>{{ data.name }}, here is your tailored growth plan.</h1>
@@ -16,6 +21,20 @@
   </div>
   <div class="heading-actions">
     <a class="button button-secondary" href="{{ url_for('analyze') }}">New analysis</a>
+    {% if data.is_preview %}
+      <a class="button button-primary" href="{{ url_for('register', from='preview') }}">Unlock Full Plan</a>
+    {% else %}
+      <div style="position:relative;display:inline-block;" id="export-menu">
+        <button type="button" onclick="document.getElementById('export-dropdown').style.display='block';this.style.zIndex=100;" class="button button-primary" style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);">Export ▾</button>
+        <div id="export-dropdown" style="display:none;position:absolute;top:120%;left:-12px;background:rgba(255,255,255,.55);backdrop-filter:blur(28px) saturate(160%);-webkit-backdrop-filter:blur(28px) saturate(160%);border:1px solid rgba(255,255,255,.6);border-radius:16px;box-shadow:0 25px 60px rgba(0,0,0,.18), 0 0 0 1px rgba(255,255,255,.3) inset, 0 0 0 1px rgba(255,255,255,.08);min-width:190px;padding:12px 0;z-index:999;">
+          <a href="{{ url_for('pdf_report', analysis_id=data.get('analysis_id', session.get('analysis_id', 0))) }}" style="display:block;padding:12px 20px;color:var(--ink);text-decoration:none;font-size:.92rem;transition:background .15s;" onmouseover="this.style.background='rgba(0,0,0,.05)'" onmouseout="this.style.background='transparent'" onclick="document.getElementById('export-dropdown').style.display='none';">Export as PDF (Professional)</a>
+          <a href="{{ url_for('export_doc', user_id=session.get('user_id', 0)) }}" style="display:block;padding:12px 20px;color:var(--ink);text-decoration:none;font-size:.92rem;transition:background .15s;" onmouseover="this.style.background='rgba(0,0,0,.05)'" onmouseout="this.style.background='transparent'" onclick="document.getElementById('export-dropdown').style.display='none';">Export as DOC</a>
+        </div>
+      </div>
+      <script>
+        document.addEventListener('click', function(e){ if(!document.getElementById('export-menu').contains(e.target)) document.getElementById('export-dropdown').style.display='none'; });
+      </script>
+    {% endif %}
   </div>
 </section>
 
@@ -125,7 +144,7 @@
 </div>
 
 <!-- Phased Learning Pathway -->
-{% if data.recommendations and data.recommendations.learning_pathway %}
+{% if session.get('user_id') and data.recommendations and data.recommendations.learning_pathway %}
 <section class="dashboard-card section-card">
   <div class="section-header">
     <div>
@@ -156,7 +175,7 @@
 {% endif %}
 
 <!-- Targeted Skill Action Plans -->
-{% if data.recommendations and data.recommendations.skill_action_plans %}
+{% if session.get('user_id') and data.recommendations and data.recommendations.skill_action_plans %}
 <section class="dashboard-card section-card">
   <div class="section-header">
     <div>
@@ -208,7 +227,7 @@
 {% endif %}
 
 <!-- AI-Tailored Portfolio Projects -->
-{% if data.recommendations and data.recommendations.portfolio_projects %}
+{% if session.get('user_id') and data.recommendations and data.recommendations.portfolio_projects %}
 <section class="dashboard-card section-card">
   <div class="section-header">
     <div>
@@ -284,24 +303,18 @@
   <section class="dashboard-card interview-card">
     <p class="eyebrow">Career readiness</p>
     <h2>Interview & Hiring Insights</h2>
-    {% if data.recommendations and data.recommendations.interview_tips %}
+    {% if session.get('user_id') and data.recommendations and data.recommendations.interview_tips %}
       <ul class="interview-tips-list">
         {% for tip in data.recommendations.interview_tips %}
           <li>{{ tip }}</li>
         {% endfor %}
       </ul>
+    {% elif session.get('user_id') %}
+      <p class="muted">Interview readiness tips will appear after full analysis unlock.</p>
     {% else %}
-      <ol class="recommendations">
-        {% if data.recommendations is iterable and data.recommendations is not mapping %}
-          {% for recommendation in data.recommendations %}
-            <li>{{ recommendation }}</li>
-          {% endfor %}
-        {% elif data.recommendations and data.recommendations.recommendations_list %}
-          {% for recommendation in data.recommendations.recommendations_list %}
-            <li>{{ recommendation }}</li>
-          {% endfor %}
-        {% endif %}
-      </ol>
+      <div class="guest-lock-overlay">
+        <p>🔒 Sign up to unlock interview readiness insights</p>
+      </div>
     {% endif %}
   </section>
 </div>

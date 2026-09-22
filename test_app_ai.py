@@ -2,13 +2,97 @@ import json
 import unittest
 
 import app
-from database import init_db
+from database import init_db, create_user, get_connection
+from werkzeug.security import generate_password_hash
+
+
+class HealthEndpointTests(unittest.TestCase):
+    def test_health_endpoint(self):
+        client = app.app.test_client()
+        response = client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn("status", data)
+        self.assertEqual(data["status"], "ok")
+        self.assertIn("ai", data)
+
+
+class AssistantEndpointTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        init_db()
+        cls.test_username = "testuser"
+        cls.test_password = "testpass123"
+        connection = get_connection()
+        connection.execute("DELETE FROM AuthUsers WHERE username = ?", (cls.test_username,))
+        connection.commit()
+        connection.close()
+        create_user(cls.test_username, generate_password_hash(cls.test_password))
+
+    def _login(self, client):
+        return client.post("/login", data={
+            "username": self.test_username,
+            "password": self.test_password,
+        }, follow_redirects=True)
+
+    def test_assistant_requires_login(self):
+        client = app.app.test_client()
+        response = client.post("/assistant", data={"message": "hello"})
+        self.assertIn(response.status_code, [302, 401, 403])
+
+    def test_assistant_empty_message(self):
+        client = app.app.test_client()
+        self._login(client)
+        response = client.post("/assistant", data={"message": ""})
+        self.assertEqual(response.status_code, 400)
+
+    def test_assistant_rate_limit(self):
+        client = app.app.test_client()
+        self._login(client)
+        response1 = client.post("/assistant", data={"message": "first message"})
+        self.assertIn(response1.status_code, [200, 429])
+        response2 = client.post("/assistant", data={"message": "second message"})
+        # Second within rate limit window should be 429 or 200 (not server error)
+        self.assertIn(response2.status_code, [200, 429])
+
+    def test_assistant_stream_endpoint(self):
+        client = app.app.test_client()
+        self._login(client)
+        response = client.get("/assistant/stream?message=hello")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/event-stream")
+        data = b""
+        for chunk in response.iter_encoded():
+            data += chunk
+        text = data.decode("utf-8", errors="replace")
+        self.assertIn("data:", text)
+
+    def test_assistant_stream_requires_login(self):
+        client = app.app.test_client()
+        response = client.get("/assistant/stream?message=hello")
+        self.assertIn(response.status_code, [302, 401, 403])
 
 
 class AiRecommendationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         init_db()
+        # Create a test user for authenticated routes
+        cls.test_username = "testuser"
+        cls.test_password = "testpass123"
+        connection = get_connection()
+        connection.execute("DELETE FROM AuthUsers WHERE username = ?", (cls.test_username,))
+        connection.execute("DELETE FROM AuthUsers WHERE username = ?", ("newuser",))
+        connection.commit()
+        connection.close()
+        create_user(cls.test_username, generate_password_hash(cls.test_password))
+
+    def _login(self, client):
+        """Helper to log in the test user."""
+        return client.post("/login", data={
+            "username": self.test_username,
+            "password": self.test_password,
+        }, follow_redirects=True)
 
     def test_rule_based_fallback_when_ai_is_disabled(self):
         recommendations = app.build_recommendations(
@@ -92,8 +176,49 @@ class AiRecommendationTests(unittest.TestCase):
         self.assertEqual(result["portfolio_projects"][0]["title"], "Custom Kanban App")
         self.assertEqual(result["interview_tips"], ["Focus on component lifecycle"])
 
+    def test_auth_flow(self):
+        client = app.app.test_client()
+
+        # POST /analyze now allows guest (preview mode), so 200 is expected
+        response = client.post("/analyze", data={"name":"x","target_role":"x","experience_level":"Beginner","current_skills":"x"})
+        self.assertIn(response.status_code, [200, 302])
+
+        # Test registration
+        reg_data = {
+            "username": "newuser",
+            "password": "password123",
+            "confirm_password": "password123"
+        }
+        response = client.post("/register", data=reg_data, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Account created successfully", response.data)
+
+        # Test login success
+        login_data = {
+            "username": "newuser",
+            "password": "password123"
+        }
+        response = client.post("/login", data=login_data, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Welcome back! Your full personalized roadmap is ready.", response.data)
+
+        # Test logout
+        response = client.get("/logout", follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"You have been logged out", response.data)
+
+        # Test login failure
+        fail_data = {
+            "username": "newuser",
+            "password": "wrongpassword"
+        }
+        response = client.post("/login", data=fail_data, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Invalid username or password", response.data)
+
     def test_flask_analyze_route_end_to_end(self):
         client = app.app.test_client()
+        self._login(client)
 
         # Test GET /analyze
         response = client.get("/analyze")
@@ -144,6 +269,7 @@ class AiRecommendationTests(unittest.TestCase):
 
     def test_flask_resume_route(self):
         client = app.app.test_client()
+        self._login(client)
 
         # Test GET /resume
         response = client.get("/resume")

@@ -1,17 +1,29 @@
 import json
+import logging
 import os
 import re
+import time
 from urllib import request as urllib_request
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("app")
+
+import requests
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     pass
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_dynamic_role_skills, get_all_roles
+from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_dynamic_role_skills, get_all_roles, create_user, get_user_by_username, get_connection, get_user_analyses, get_analysis_by_id, delete_analysis_by_id, purge_old_analyses, delete_user_account, set_analysis_keep_forever
+from services.ai_service import validate_and_sanitize, generate_response
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "skill-gap-analyzer-development-key"
@@ -1085,17 +1097,201 @@ def index():
     return render_template("index.html")
 
 
+def login_required(view_func=None, *, allow_guest=False):
+    import functools
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if session.get("user_id"):
+                return func(*args, **kwargs)
+            if allow_guest:
+                return func(*args, **kwargs)
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for("register" if request.args.get("from") == "preview" else "login"))
+        return wrapper
+    if view_func is None:
+        return decorator
+    return decorator(view_func)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not username or not password:
+            flash("Username and password are required.", "error")
+            return render_template("register.html")
+
+        if password != confirm_password:
+            flash("Passwords do not match.", "error")
+            return render_template("register.html")
+
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
+            return render_template("register.html")
+
+        password_hash = generate_password_hash(password)
+        if create_user(username, password_hash):
+            flash("Account created successfully. Please log in.", "success")
+            return redirect(url_for("login"))
+        else:
+            flash("Username already exists. Choose a different one.", "error")
+
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        if not username or not password:
+            flash("Username and password are required.", "error")
+            return render_template("login.html")
+
+        user = get_user_by_username(username)
+        if user and check_password_hash(user["password_hash"], password):
+            # Read preview data BEFORE clearing session
+            name = session.get("preview_name", "")
+            target_role = session.get("preview_target_role", "")
+            experience_level = session.get("preview_experience", "")
+            current_skills_str = session.get("preview_current_skills", "")
+            career_goal = session.get("preview_career_goal", "")
+            custom_role = session.get("preview_custom_role", False)
+            session.clear()
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            current_skills = normalize_skills(current_skills_str) if current_skills_str else []
+            if name and target_role and experience_level and current_skills:
+                # Rebuild full analysis for the logged-in user
+                role_skills = resolve_role_skills(target_role, career_goal)
+                required_names = [item["skill_name"] for item in role_skills]
+                have, missing = match_skills(current_skills, role_skills)
+                skill_lookup = {item["skill_name"]: item["importance"] for item in role_skills}
+                high_priority = [skill for skill in missing if skill_lookup.get(skill) == "High"]
+                medium_priority = [skill for skill in missing if skill_lookup.get(skill) != "High"]
+                match_percentage = round((len(have) / len(required_names)) * 100) if required_names else 0
+                recommendations_data = generate_ai_recommendations(target_role, current_skills, missing, experience_level, career_goal)
+                save_analysis(session.get("user_id"), name, experience_level, target_role, current_skills, match_percentage, missing, recommendations_data)
+                dashboard_data = {
+                    "name": name,
+                    "role": target_role,
+                    "experience": experience_level,
+                    "career_goal": career_goal,
+                    "current_skills": current_skills,
+                    "required_skills": required_names,
+                    "have": have,
+                    "missing": missing,
+                    "high_priority": high_priority,
+                    "medium_priority": medium_priority,
+                    "match_percentage": match_percentage,
+                    "gap_percentage": 100 - match_percentage,
+                    "recommendations": recommendations_data,
+                    "projects": build_projects(target_role, missing),
+                    "ai_mode": True,
+                    "ai_provider": recommendations_data.get("provider", "AI"),
+                    "custom_role": bool(custom_role),
+                    "resume_review": recommendations_data.get("resume_review") if isinstance(recommendations_data, dict) else None,
+                    "is_preview": False,
+                }
+                flash("Welcome back! Your full personalized roadmap is ready.", "success")
+                return render_template("dashboard.html", data=dashboard_data)
+            # If no preview was preserved, fall through to normal redirect
+            flash(f"Welcome back, {username}!", "success")
+            return redirect(url_for("analyze"))
+        else:
+            flash("Invalid username or password.", "error")
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for("login"))
+
+
+@app.route("/analysis/<int:analysis_id>/keep", methods=["POST"])
+@login_required
+def keep_analysis_route(analysis_id):
+    set_analysis_keep_forever(analysis_id, session.get("user_id"), 1)
+    flash("History kept — won’t be auto-deleted.", "info")
+    return redirect(url_for("profile", _anchor="history"))
+
+
+@app.route("/analysis/<int:analysis_id>/delete", methods=["POST"])
+@login_required
+def delete_analysis_route(analysis_id):
+    delete_analysis_by_id(analysis_id, session.get("user_id"))
+    flash("History deleted.", "info")
+    return redirect(url_for("profile", _anchor="history"))
+
+
+@app.route("/analysis/<int:analysis_id>")
+@login_required
+def analysis_detail(analysis_id):
+    user_id = session.get("user_id")
+    conn = get_connection()
+    row = conn.execute("SELECT result_json FROM Analysis WHERE id = ? AND user_id = ?", (analysis_id, user_id)).fetchone()
+    conn.close()
+    if not row or not row["result_json"]:
+        flash("Full result not found for this history.", "warning")
+        return redirect(url_for("profile"))
+    data = json.loads(row["result_json"])
+    return render_template("dashboard.html", data=data)
+
+
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    if request.method == "POST" and request.form.get("delete_account"):
+        user_id = session.get("user_id")
+        if user_id:
+            delete_user_account(user_id)
+            session.clear()
+            flash("Account deleted.", "info")
+            return redirect(url_for("login"))
+    analyses = get_user_analyses(session.get("user_id")) if session.get("user_id") else []
+    return render_template("profile.html", analyses=analyses)
+
+
 @app.route("/analyze", methods=["GET", "POST"])
+@login_required(allow_guest=True)
 def analyze():
     preset_roles = list(ROLE_SKILLS.keys())
     saved_roles = get_all_roles()
     all_roles = list(dict.fromkeys(preset_roles + saved_roles))
 
     if request.method == "GET":
+        load_id = request.args.get("load_id")
+        if load_id:
+            old = get_analysis_by_id(int(load_id), session.get("user_id")) if session.get("user_id") else None
+            if old:
+                session["preview_name"] = old.get("name") or session.get("username")
+                session["preview_target_role"] = old.get("target_role", "")
+                session["preview_experience"] = old.get("experience_level", "")
+                # Reconstruct skills from UserSkills or stored analysis
+                skills = []
+                try:
+                    conn = get_connection()
+                    skill_rows = conn.execute("SELECT skill_name FROM UserSkills WHERE user_id = ?", (session.get("user_id"),)).fetchall()
+                    conn.close()
+                    skills = [r["skill_name"] for r in skill_rows]
+                except Exception:
+                    pass
+                session["preview_current_skills"] = ", ".join(skills) if skills else (old.get("current_skills") or "")
+                session["preview_career_goal"] = old.get("career_goal") or ""
+                session["preview_custom_role"] = bool(old.get("target_role") and old.get("target_role") not in list(ROLE_SKILLS.keys()))
         return render_template(
             "analyze.html",
             roles=all_roles,
             experience_levels=EXPERIENCE_LEVELS,
+            loaded=load_id is not None,
         )
 
     name = request.form.get("name", "").strip()
@@ -1118,11 +1314,20 @@ def analyze():
     medium_priority = [skill for skill in missing if skill_lookup.get(skill) != "High"]
     match_percentage = round((len(have) / len(required_names)) * 100) if required_names else 0
 
+    is_guest = not session.get("user_id")
+
     recommendations_data = generate_ai_recommendations(target_role, current_skills, missing, experience_level, career_goal)
     ai_mode = True
 
+    # Preserve user input in session so login doesn't wipe it
+    session["preview_name"] = name
+    session["preview_target_role"] = target_role
+    session["preview_experience"] = experience_level
+    session["preview_current_skills"] = ", ".join(current_skills)
+    session["preview_career_goal"] = career_goal
+    session["preview_custom_role"] = bool(custom_role)
+
     legacy_projects = build_projects(target_role, missing)
-    save_analysis(name, experience_level, target_role, current_skills, match_percentage, missing, recommendations_data)
 
     dashboard_data = {
         "name": name,
@@ -1143,11 +1348,18 @@ def analyze():
         "ai_provider": recommendations_data.get("provider", "AI"),
         "custom_role": bool(custom_role),
         "resume_review": recommendations_data.get("resume_review") if isinstance(recommendations_data, dict) else None,
+        "is_preview": is_guest,
     }
+
+    if not is_guest:
+        from database import save_full_analysis_result
+        save_full_analysis_result(session.get("user_id"), name, experience_level, target_role, current_skills, match_percentage, missing, recommendations_data, json.dumps(dashboard_data))
+
     return render_template("dashboard.html", data=dashboard_data)
 
 
 @app.route("/resume", methods=["GET", "POST"])
+@login_required(allow_guest=True)
 def resume_analysis():
     preset_roles = list(ROLE_SKILLS.keys())
     saved_roles = get_all_roles()
@@ -1179,10 +1391,20 @@ def resume_analysis():
         flash("Please select or enter a target role.", "error")
         return redirect(url_for("resume_analysis"))
 
+    is_guest = not session.get("user_id")
+
     recommendations_data = generate_ai_resume_analysis(target_role, resume_text)
 
     extracted_skills = recommendations_data.get("extracted_skills", [])
     current_skills = normalize_skills(", ".join(extracted_skills)) if extracted_skills else ["Analyzed from Resume"]
+
+    # Preserve preview like /analyze so login can rebuild full plan
+    session["preview_name"] = "Resume Analysis"
+    session["preview_target_role"] = target_role
+    session["preview_experience"] = "Analyzed"
+    session["preview_current_skills"] = ", ".join(current_skills)
+    session["preview_career_goal"] = "Resume-based Assessment"
+    session["preview_custom_role"] = bool(custom_role)
 
     role_skills = resolve_role_skills(target_role)
     required_names = [item["skill_name"] for item in role_skills]
@@ -1191,8 +1413,6 @@ def resume_analysis():
     high_priority = [skill for skill in missing if skill_lookup.get(skill) == "High"]
     medium_priority = [skill for skill in missing if skill_lookup.get(skill) != "High"]
     match_percentage = round((len(have) / len(required_names)) * 100) if required_names else 0
-
-    save_analysis("Resume Analysis", "Intermediate", target_role, current_skills, match_percentage, missing, recommendations_data)
 
     dashboard_data = {
         "name": "Resume Analysis",
@@ -1212,8 +1432,69 @@ def resume_analysis():
         "custom_role": bool(custom_role),
         "ai_provider": recommendations_data.get("provider", "Intelligent Rule Engine"),
         "resume_review": recommendations_data.get("resume_review"),
+        "is_preview": is_guest,
     }
+    if not is_guest:
+        from database import save_full_analysis_result
+        save_full_analysis_result(session.get("user_id"), "Resume Analysis", "Intermediate", target_role, current_skills, match_percentage, missing, recommendations_data, json.dumps(dashboard_data))
     return render_template("dashboard.html", data=dashboard_data)
+
+
+@app.route("/export/pdf/<int:analysis_id>")
+@login_required
+def pdf_report(analysis_id):
+    from flask import render_template, make_response
+    import json
+    from weasyprint import HTML
+    conn = get_connection()
+    if analysis_id > 0:
+        row = conn.execute("SELECT result_json FROM Analysis WHERE id = ? AND user_id = ?", (analysis_id, session.get("user_id"))).fetchone()
+    else:
+        row = conn.execute("SELECT result_json FROM Analysis WHERE user_id = ? ORDER BY created_at DESC LIMIT 1", (session.get("user_id"),)).fetchone()
+    conn.close()
+    if not row or not row["result_json"]:
+        flash("Result not found.", "warning")
+        return redirect(url_for("profile"))
+    data = json.loads(row["result_json"])
+    html_str = render_template("report_pdf.html", data=data)
+    pdf_bytes = HTML(string=html_str, base_url=".").write_pdf()
+    response = make_response(pdf_bytes)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
+    return response
+
+@app.route("/export/csv/<int:user_id>")
+def export_csv(user_id):
+    from flask import Response, make_response
+    import csv, io
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+    connection = get_connection()
+    row = connection.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    connection.close()
+    if not row:
+        return "No data found", 404
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["field", "value"])
+    writer.writerow(["name", row["user_id"]])
+    writer.writerow(["match_percentage", row["match_percentage"]])
+    writer.writerow(["missing_skills", row["missing_skills"]])
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=analysis.csv"})
+
+
+@app.route("/export/doc/<int:user_id>")
+def export_doc(user_id):
+    from flask import Response
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+    connection = get_connection()
+    row = connection.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    connection.close()
+    if not row:
+        return "No data found", 404
+    html = f"""<html><body><h1>Skill Gap Analysis</h1><p>Match: {row['match_percentage']}%</p><p>Missing: {row['missing_skills']}</p></body></html>"""
+    return Response(html, mimetype="application/msword", headers={"Content-Disposition": "attachment; filename=analysis.doc"})
 
 
 def generate_ai_resume_analysis(role, resume_text):
@@ -1288,12 +1569,178 @@ def generate_ai_resume_analysis(role, resume_text):
     return fallback()
 
 
+@app.route("/assistant", methods=["POST"])
+@login_required
+def assistant_chat():
+    user_text = request.form.get("message", "").strip()
+    if not user_text:
+        return {"reply": "Please ask a question."}, 400
+    # Rate limiting per user
+    now = time.time()
+    ts = _rate_limits.get(user_id := session.get("user_id"), 0)
+    if now - ts < _RATE_LIMIT_SECONDS:
+        return {"reply": "Please wait before sending another message."}, 429
+    _rate_limits[user_id] = now
+
+    # Build rich context from user's saved analysis + Users/UserSkills tables
+    name = session.get("username", "User")
+    role = session.get("preview_target_role") or session.get("last_target_role") or ""
+    experience = session.get("preview_experience") or session.get("last_experience") or ""
+    current_skills = session.get("preview_current_skills") or ""
+    missing_skills = "Not recorded"
+    match_pct = "N/A"
+    recommendations = "N/A"
+    if user_id:
+        try:
+            conn = get_connection()
+            user_row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+            skill_rows = conn.execute("SELECT skill_name FROM UserSkills WHERE user_id = ?", (user_id,)).fetchall()
+            conn.close()
+            if user_row:
+                name = user_row["name"] or name
+                role = user_row["target_role"] or role
+                experience = user_row["experience_level"] or experience
+            if skill_rows:
+                seen = set()
+                unique = []
+                for row in skill_rows:
+                    s = row["skill_name"]
+                    if s and s not in seen:
+                        seen.add(s)
+                        unique.append(s)
+                current_skills = ", ".join(unique)
+            if latest:
+                match_pct = latest["match_percentage"]
+                missing_skills = latest["missing_skills"] or missing_skills
+                rec_raw = latest["recommendations"]
+                if rec_raw:
+                    try:
+                        rec_data = json.loads(rec_raw) if isinstance(rec_raw, str) else rec_raw
+                        if isinstance(rec_data, dict):
+                            rec_list = rec_data.get("recommendations_list") or rec_data.get("summary") or rec_data
+                            recommendations = json.dumps(rec_list) if not isinstance(rec_list, str) else rec_list
+                        else:
+                            recommendations = rec_raw
+                    except Exception:
+                        recommendations = rec_raw
+        except Exception:
+            pass
+    role = role or "not set yet"
+    experience = experience or "not set yet"
+    current_skills = current_skills or "Not recorded"
+    if match_pct == "N/A":
+        profile_context = (
+            f"Name: {name}. Target role: {role}. Experience: {experience}. "
+            f"Current skills: {current_skills}. No saved analysis yet — guide them to complete /analyze or upload a resume."
+        )
+    else:
+        profile_context = (
+            f"Name: {name}. Target role: {role}. Experience: {experience}. "
+            f"Skill match: {match_pct}%. Current skills: {current_skills}. "
+            f"Missing skills: {missing_skills}. Recommendations: {recommendations}."
+        )
+    # Conversation history from session (last 6 messages)
+    conversation = session.get("ai_conversation", [])
+    result = generate_response(user_text, profile_context, conversation)
+    # Update conversation memory
+    conversation.append({"role": "user", "text": user_text})
+    conversation.append({"role": "assistant", "text": result["reply"]})
+    session["ai_conversation"] = conversation[-12:]  # keep last 6 turns
+    session.modified = True
+    return {"reply": result["reply"], "errors": result.get("errors", [])}
+
+
+@app.route("/assistant/stream")
+@login_required
+def assistant_stream():
+    """SSE endpoint — yields the complete reply immediately, then streams word chunks."""
+    user_text = request.args.get("message", "").strip()
+    if not user_text:
+        return Response("data: {\"reply\":\"\"}\n\n", mimetype="text/event-stream")
+
+    # Build context from DB (same as /assistant)
+    user_id = session.get("user_id")
+    profile_context = _build_assistant_context(user_id, session)
+    conversation = session.get("ai_conversation", [])
+
+    # Call AI once (same endpoint that works)
+    result = generate_response(user_text, profile_context, conversation)
+    reply = result.get("reply", "")
+
+    # Update session memory
+    updated_conv = conversation + [{"role": "user", "text": user_text}, {"role": "assistant", "text": reply}]
+    session["ai_conversation"] = updated_conv[-12:]
+    session.modified = True
+
+    def stream():
+        words = reply.split(" ")
+        for i, w in enumerate(words):
+            prefix = "" if i == 0 else " "
+            chunk = prefix + w
+            yield f"data: {{\"reply\":{json.dumps(chunk)}}}\n\n"
+        yield "data: {\"done\":true}\n\n"
+
+    return Response(stream(), mimetype="text/event-stream")
+
+
+def _build_assistant_context(user_id, session_obj):
+    name = session_obj.get("username", "User")
+    role = session_obj.get("preview_target_role") or session_obj.get("last_target_role") or ""
+    experience = session_obj.get("preview_experience") or session_obj.get("last_experience") or ""
+    current_skills = session_obj.get("preview_current_skills") or ""
+    missing = "Not recorded"; match = "N/A"; recs = "N/A"
+    if user_id:
+        try:
+            conn = get_connection()
+            user_row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
+            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+            skill_rows = conn.execute("SELECT skill_name FROM UserSkills WHERE user_id = ?", (user_id,)).fetchall()
+            conn.close()
+            if user_row:
+                name = user_row["name"] or name; role = user_row["target_role"] or role; experience = user_row["experience_level"] or experience
+            if skill_rows:
+                seen = set(); unique = []
+                for row in skill_rows:
+                    s = row["skill_name"]
+                    if s and s not in seen: seen.add(s); unique.append(s)
+                current_skills = ", ".join(unique)
+            if latest:
+                match = latest["match_percentage"]; missing = latest["missing_skills"] or missing
+                rec_raw = latest["recommendations"]
+                if rec_raw:
+                    try:
+                        d = json.loads(rec_raw) if isinstance(rec_raw, str) else rec_raw
+                        recs = json.dumps(d.get("recommendations_list", d.get("summary", rec_raw))) if isinstance(d, dict) else rec_raw
+                    except Exception: recs = rec_raw
+        except Exception: pass
+    role = role or "not set yet"; experience = experience or "not set yet"; current_skills = current_skills or "Not recorded"
+    if match == "N/A":
+        return f"Name: {name}. Target role: {role}. Experience: {experience}. Current skills: {current_skills}. No saved analysis yet."
+    return f"Name: {name}. Target role: {role}. Experience: {experience}. Skill match: {match}%. Current skills: {current_skills}. Missing skills: {missing}. Recommendations: {recs}."
+
+
 @app.route("/about")
 def about():
     return render_template("about.html")
 
 
+# ── In-memory rate limiting (resets on restart) ───────────────
+_RATE_LIMIT_SECONDS = 5
+_rate_limits = {}
+
+
+@app.route("/health")
+def health():
+    return {"status": "ok", "ai": "gemini", "model": os.getenv("GEMINI_MODEL", "unknown")}
+
+
 if __name__ == "__main__":
     init_db()
+    try:
+        purge_old_analyses(30)
+        logger.info("Auto-purged analyses older than 30 days.")
+    except Exception as e:
+        logger.warning("Auto-purge failed: %s", e)
     app.run(debug=True)
 

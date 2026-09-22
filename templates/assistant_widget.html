@@ -1,0 +1,147 @@
+{% if session.get('user_id') %}
+<div class="ai-assistant-toggle" onclick="toggleAssistant()" aria-label="Open AI Career Assistant" title="Career Assistant">🤖</div>
+
+<div class="ai-assistant-panel" id="aiPanel">
+  <div class="ai-assistant-header">
+    <h4>Career Assistant</h4>
+    <button onclick="toggleAssistant()" aria-label="Close">✕</button>
+  </div>
+  <div class="ai-assistant-body" id="aiChatBody">
+    <div class="ai-message bot">Hello {{ session.username or 'there' }}! I'm your career assistant — I know your role ({{ session.get('preview_target_role', 'your target role') }}), experience level, saved analysis, missing skills, and roadmap. Ask me about your skill gap, portfolio, or this app only. Off-topic questions will be redirected.</div>
+    <div id="aiErrorBox" style="display:none;color:var(--red);font-size:.8rem;margin-top:4px;padding:6px 10px;background:var(--card-surface);border-radius:6px"></div>
+  </div>
+  <form class="ai-assistant-form" onsubmit="sendAssistantMessage(event)">
+    <input type="text" id="aiInput" placeholder="Ask about your roadmap or skills..." autocomplete="off" />
+    <button type="submit">Send</button>
+  </form>
+</div>
+
+<script>
+let _assistantRequestId = 0;
+let _assistantAbort = null;
+
+function toggleAssistant() {
+  document.getElementById('aiPanel').classList.toggle('open');
+}
+
+function showError(msg) {
+  const box = document.getElementById('aiErrorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+  setTimeout(() => { box.style.display = 'none'; }, 8000);
+}
+
+async function sendAssistantMessage(e) {
+  e.preventDefault();
+  const input = document.getElementById('aiInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const body = document.getElementById('aiChatBody');
+
+  // Cancel any in-flight request
+  if (_assistantAbort) _assistantAbort();
+  const requestId = ++_assistantRequestId;
+  const abortCtrl = new AbortController();
+  _assistantAbort = () => abortCtrl.abort();
+
+  // Show user message
+  const userMsg = document.createElement('div');
+  userMsg.className = 'ai-message user';
+  userMsg.textContent = text;
+  body.appendChild(userMsg);
+  input.value = '';
+
+  // Show typing indicator
+  const botReply = document.createElement('div');
+  botReply.className = 'ai-message bot';
+  botReply.innerHTML = '<span class="typing-dot">●</span> <span class="typing-dot">●</span> <span class="typing-dot">●</span> <span style="font-size:.75rem;color:var(--muted)">AI is thinking...</span>';
+  body.appendChild(botReply);
+  body.scrollTop = body.scrollHeight;
+
+  // Clear previous errors
+  document.getElementById('aiErrorBox').style.display = 'none';
+
+  try {
+    // Try SSE first (true streaming)
+    const streamUrl = `/assistant/stream?message=${encodeURIComponent(text)}`;
+    const eventSource = new EventSource(streamUrl);
+
+    let fullText = '';
+    let receivedAny = false;
+
+    eventSource.onmessage = function(event) {
+      receivedAny = true;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.done) { eventSource.close(); return; }
+        const chunk = data.reply || "";
+        if (chunk) {
+          fullText += chunk;
+          botReply.textContent = fullText;
+          body.scrollTop = body.scrollHeight;
+        }
+      } catch(e) { /* ignore parse errors */ }
+    };
+
+    eventSource.onerror = function() {
+      eventSource.close();
+      if (requestId !== _assistantRequestId) return;
+      // SSE failed — fall back to JSON fetch
+      fetchWithFallback(text, botReply, body, abortCtrl.signal);
+    };
+
+    // Set a timeout: if no data in 10s, fall back
+    setTimeout(() => {
+      if (!receivedAny && requestId === _assistantRequestId) {
+        eventSource.close();
+        fetchWithFallback(text, botReply, body, abortCtrl.signal);
+      }
+    }, 10000);
+
+  } catch (err) {
+    fetchWithFallback(text, botReply, body, abortCtrl.signal);
+  }
+}
+
+async function fetchWithFallback(text, botReply, body, signal) {
+  if (signal?.aborted) return;
+  try {
+    const res = await fetch('/assistant', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'message=' + encodeURIComponent(text),
+      signal,
+    });
+    if (!res.ok) {
+      if (res.status === 429) {
+        botReply.innerHTML = '<span style="color:var(--red)">⏳ Too many requests. Please wait a few seconds.</span>';
+      } else {
+        botReply.innerHTML = `<span style="color:var(--red)">Server error (${res.status}). Please try again.</span>`;
+      }
+      showError(`Server returned ${res.status}`);
+      return;
+    }
+    const data = await res.json();
+    const fullText = data.reply || "No reply received.";
+    botReply.innerHTML = '';
+    botReply.textContent = '';
+    let i = 0;
+    function reveal() {
+      if (i < fullText.length && !signal?.aborted) {
+        botReply.textContent += fullText.slice(i, i + 2);
+        i += 2;
+        body.scrollTop = body.scrollHeight;
+        setTimeout(reveal, 16);
+      } else {
+        botReply.classList.add('done');
+      }
+    }
+    reveal();
+  } catch (err) {
+    if (signal?.aborted) return;
+    botReply.innerHTML = '⚠️ Connection lost. Check your network and try again.';
+    showError('Connection failed — check your network.');
+  }
+}
+</script>
+{% endif %}

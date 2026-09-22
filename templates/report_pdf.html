@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ data.name }} — Skill Gap Report</title>
+<style>
+@page { size: A4 portrait; margin: 14mm 12mm 18mm 12mm; @top-right { content: "AI Skill Gap Analyzer"; font-size: 7.5pt; color: #94a3b8; } @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 7.5pt; color: #94a3b8; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #0f172a; line-height: 1.35; background: #fff; font-size: 9.8pt; }
+.container { max-width: 720px; margin: 0 auto; padding: 22px 20px 36px; }
+.heading { margin-bottom: 16pt; }
+.eyebrow { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .08em; color: #6366f1; font-weight: 700; margin-bottom: 3pt; }
+h1 { font-size: 21pt; font-weight: 800; letter-spacing: -1pt; color: #0f172a; line-height: 1.1; margin-bottom: 4pt; }
+.subtitle { font-size: 9.5pt; color: #475569; line-height: 1.35; }
+.badge-row { margin: 8pt 0 14pt; }
+.tag { display: inline-block; padding: 2.5pt 7pt; border-radius: 6pt; font-size: 7pt; font-weight: 700; letter-spacing: .03em; margin-right: 4pt; text-transform: uppercase; }
+.tag-green { background: #dcfce7; color: #166534; }
+.tag-blue { background: #dbeafe; color: #1e40af; }
+.tag-amber { background: #fef3c7; color: #92400e; }
+.banner { background: linear-gradient(135deg,#f0fdfa,#f5f3ff); border-left: 3pt solid #6366f1; border-radius: 8pt; padding: 10pt 12pt; margin-bottom: 14pt; }
+.banner h3 { font-size: 10pt; color: #0f172a; margin: 0 0 3pt; font-weight: 700; }
+.banner p { font-size: 9pt; color: #334155; margin: 0; line-height: 1.4; }
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10pt; margin: 14pt 0; }
+.metric-card { background: #f8fafc; border: 1pt solid #e2e8f0; border-radius: 10pt; padding: 12pt 8pt; text-align: center; }
+.metric-card .label { font-size: 7pt; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 600; }
+.metric-card .val { font-size: 18pt; font-weight: 800; color: #0f766e; line-height: 1; }
+.metric-card .track { height: 6pt; background: #e2e8f0; border-radius: 3pt; margin-top: 6pt; overflow: hidden; }
+.metric-card .fill { height: 100%; background: linear-gradient(90deg,#0f766e,#6366f1); border-radius: 3pt; }
+.section { margin-bottom: 14pt; }
+.section h2 { font-size: 11pt; font-weight: 700; color: #0f172a; padding-bottom: 3pt; border-bottom: 1.5pt solid #e2e8f0; margin-bottom: 8pt; letter-spacing: -.2pt; text-transform: uppercase; }
+.skills-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+.skill-block { background: #fff; border: 1pt solid #e2e8f0; border-radius: 8pt; padding: 10pt 12pt; }
+.skill-block h3 { font-size: 9.5pt; color: #334155; margin: 0 0 6pt; font-weight: 600; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 4pt; }
+.tag-green { display: inline-block; padding: 2pt 6pt; border-radius: 4pt; font-size: 7.5pt; font-weight: 600; background: #dcfce7; color: #166534; }
+.tag-orange { display: inline-block; padding: 2pt 6pt; border-radius: 4pt; font-size: 7.5pt; font-weight: 600; background: #fef3c7; color: #92400e; }
+.recommendations { background: #fff; border: 1pt solid #e2e8f0; border-left: 3pt solid #6366f1; border-radius: 8pt; padding: 10pt 12pt; margin-bottom: 8pt; }
+.recommendations h4 { font-size: 9.5pt; font-weight: 700; color: #0f172a; margin: 0 0 4pt; }
+.recommendations p { font-size: 8.5pt; color: #334155; line-height: 1.45; margin: 0; }
+.project-card { background: #f8fafc; border: 1pt solid #e2e8f0; border-radius: 8pt; padding: 10pt 12pt; margin-bottom: 8pt; }
+.project-card h4 { font-size: 9.5pt; font-weight: 700; color: #0f172a; margin: 0 0 3pt; }
+.project-card p { font-size: 8pt; color: #475569; line-height: 1.35; margin: 0; }
+.footer { margin-top: 14pt; padding-top: 6pt; border-top: 0.5pt solid #e2e8f0; font-size: 7pt; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="heading">
+  <div class="eyebrow">Your personalized roadmap</div>
+  <h1>{{ data.name }}, here is your tailored growth plan.</h1>
+  <p class="subtitle">{{ data.role }} <span style="color:#94a3b8;">•</span> {{ data.experience }} level{% if data.career_goal %} <span style="color:#94a3b8;">•</span> Focus: <em>{{ data.career_goal }}</em>{% endif %}</p>
+  <div class="badge-row">
+    <span class="tag tag-green">Match {{ data.match_percentage }}%</span>
+    <span class="tag tag-blue">AI Generated ({{ data.ai_provider or 'AI' }})</span>
+  </div>
+</div>
+
+{% if data.recommendations and data.recommendations.summary %}
+<div class="banner">
+  <h3>💡 Strategic Assessment</h3>
+  <p>{{ data.recommendations.summary }}</p>
+</div>
+{% endif %}
+
+<div class="metrics">
+  <div class="metric-card"><div class="label">Overall match</div><div class="val">{{ data.match_percentage }}<small style="font-size:10pt;color:#64748b;">%</small></div><div class="track"><div class="fill" style="width:{{ data.match_percentage }}%"></div></div><p style="font-size:7pt;color:#64748b;margin-top:3pt;">{{ data.have|length }} of {{ data.required_skills|length }} role skills covered</p></div>
+  <div class="metric-card"><div class="label">Skills you have</div><div class="val">{{ data.have|length }}</div><p style="font-size:7pt;color:#64748b;margin-top:3pt;">Relevant competencies matched</p></div>
+  <div class="metric-card"><div class="label">Skills to build</div><div class="val">{{ data.missing|length }}</div><p style="font-size:7pt;color:#64748b;margin-top:3pt;">{{ data.gap_percentage }}% remaining gap</p></div>
+  <div class="metric-card"><div class="label">Gap %</div><div class="val">{{ data.gap_percentage }}%</div></div>
+</div>
+
+<div class="section">
+  <h2>Strengths vs. Opportunities</h2>
+  <div class="skills-grid">
+    <div class="skill-block">
+      <h3>✓ Your toolkit</h3>
+      <div class="tag-row">
+        {% for skill in data.have %}<span class="tag-green">✓ {{ skill }}</span>{% else %}<p style="font-size:8pt;color:#94a3b8;font-style:italic;">No matching skills yet.</p>{% endfor %}
+      </div>
+    </div>
+    <div class="skill-block">
+      <h3>+ Skills to acquire</h3>
+      <div class="tag-row">
+        {% for skill in data.missing %}<span class="tag-orange">+ {{ skill }}</span>{% else %}<p style="font-size:8pt;color:#94a3b8;font-style:italic;">Outstanding! All covered.</p>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if data.recommendations and data.recommendations.learning_pathway %}
+<div class="section">
+  <h2>Phased Learning Pathway</h2>
+  {% for phase in data.recommendations.learning_pathway %}
+  <div class="project-card">
+    <strong style="font-size:9pt;color:#0f172a;">0{{ loop.index }} • {{ phase.duration }} — {{ phase.phase }}</strong>
+    <p style="font-size:8pt;color:#334155;margin:3pt 0 4pt;">{{ phase.description }}</p>
+    {% if phase.tasks %}<ul style="padding-left:12pt;font-size:8pt;color:#334155;line-height:1.35;">{% for t in phase.tasks %}<li>{{ t }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="section">
+  <h2>Recommendations</h2>
+  {% if data.recommendations and data.recommendations.summary %}
+  <div class="recommendations"><h4>Strategic Assessment</h4><p>{{ data.recommendations.summary }}</p></div>
+  {% endif %}
+  <div class="recommendations"><h4>AI Provider</h4><p>{{ data.ai_provider or 'AI' }}</p></div>
+</div>
+
+{% if session.get('user_id') and data.recommendations and data.recommendations.portfolio_projects %}
+<div class="section">
+  <h2>Custom Portfolio Project Blueprints</h2>
+  {% for proj in data.recommendations.portfolio_projects %}
+  <div class="project-card">
+    <h4 style="font-size:9pt;color:#0f172a;margin:0 0 2pt;">{{ proj.title }}</h4>
+    <p style="font-size:8pt;color:#334155;line-height:1.35;margin:0 0 4pt;">{{ proj.description }}</p>
+    {% if proj.skills_used %}<p style="font-size:7pt;color:#64748b;margin:0;">Tech: {{ proj.skills_used|join(', ') }}</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="section">
+  <h2>What to learn first</h2>
+  <div class="skills-grid">
+    <div>
+      <h3 style="font-size:9pt;color:#0f172a;margin-bottom:4pt;">● High priority</h3>
+      <div class="tag-row">{% for s in data.high_priority %}<span class="tag-orange">{{ s }}</span>{% else %}<span style="font-size:8pt;color:#94a3b8;">None</span>{% endfor %}</div>
+    </div>
+    <div>
+      <h3 style="font-size:9pt;color:#0f172a;margin-bottom:4pt;">● Medium priority</h3>
+      <div class="tag-row">{% for s in data.medium_priority %}<span class="tag-amber">{{ s }}</span>{% else %}<span style="font-size:8pt;color:#94a3b8;">None</span>{% endfor %}</div>
+    </div>
+  </div>
+</div>
+
+{% if session.get('user_id') and data.recommendations and data.recommendations.interview_tips %}
+<div class="section">
+  <h2>Interview & Hiring Insights</h2>
+  <ul style="padding-left:14pt;font-size:8.5pt;color:#334155;line-height:1.45;">
+    {% for tip in data.recommendations.interview_tips %}<li>{{ tip }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="section" style="margin-top:10pt;padding-top:8pt;border-top:1pt solid #e2e8f0;">
+  <h2>Three golden rules for success</h2>
+  <p style="font-size:9pt;color:#334155;line-height:1.4;">1. Master high-priority building blocks &nbsp;•&nbsp; 2. Build & deploy your custom portfolio project &nbsp;•&nbsp; 3. Explain architectural decisions in interviews</p>
+</div>
+
+<div class="footer">Generated by AI Skill Gap Analyzer • {{ data.name }} • {{ data.role }} • {{ data.match_percentage }}% match</div>
+</div>
+</body>
+</html>
