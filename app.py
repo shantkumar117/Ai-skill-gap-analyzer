@@ -1444,7 +1444,7 @@ def resume_analysis():
 @login_required
 def pdf_report(analysis_id):
     import json
-    from flask import render_template, make_response
+    from flask import make_response, render_template
     conn = get_connection()
     if analysis_id > 0:
         row = conn.execute("SELECT result_json FROM Analysis WHERE id = ? AND user_id = ?", (analysis_id, session.get("user_id"))).fetchone()
@@ -1455,22 +1455,13 @@ def pdf_report(analysis_id):
         flash("Result not found.", "warning")
         return redirect(url_for("profile"))
     data = json.loads(row["result_json"])
+    # Use Weasyprint (already installed); base_url ensures static assets resolve
+    from weasyprint import HTML
     html_str = render_template("report_pdf.html", data=data)
-    # Try xhtml2pdf if installed; else serve HTML as download with .pdf extension
-    try:
-        from xhtml2pdf import pisa
-        pdf_bytes = pisa.CreatePDF(html_str, dest=None)
-        if pdf_bytes:
-            response = make_response(pdf_bytes)
-            response.headers["Content-Type"] = "application/pdf"
-            response.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
-            return response
-    except Exception:
-        pass
-    # Fallback: serve rendered HTML as .pdf download (browser can print/save)
-    response = make_response(html_str)
+    pdf_bytes = HTML(string=html_str, base_url=".").write_pdf()
+    response = make_response(pdf_bytes)
     response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
+    response.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_" + str(analysis_id) + ".pdf"
     return response
 
 @app.route("/export/csv/<int:user_id>")
