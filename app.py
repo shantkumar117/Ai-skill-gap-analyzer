@@ -1443,7 +1443,7 @@ def resume_analysis():
 @app.route("/export/pdf/<int:analysis_id>")
 @login_required
 def pdf_report(analysis_id):
-    import json
+    import json, os, tempfile
     from flask import make_response, render_template
     conn = get_connection()
     if analysis_id > 0:
@@ -1455,23 +1455,31 @@ def pdf_report(analysis_id):
         flash("Result not found.", "warning")
         return redirect(url_for("profile"))
     data = json.loads(row["result_json"])
-    html_str = render_template("report_pdf.html", data=data)
-    # Pure-python PDF generation; avoids Weasyprint GTK dependency
+    html_path = os.path.join(tempfile.gettempdir(), f"pdf_render_{analysis_id}.html")
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(render_template("report_pdf.html", data=data))
     try:
-        from xhtml2pdf import pisa
-        pdf_bytes = pisa.CreatePDF(html_str, dest=None)
-        if pdf_bytes and isinstance(pdf_bytes, bytes) and len(pdf_bytes) > 100:
-            resp = make_response(pdf_bytes)
-            resp.headers["Content-Type"] = "application/pdf"
-            resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
-            return resp
+        from playwright.sync_api import sync_playwright
+        pdf_path = html_path.replace('.html', '.pdf')
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(f"file://{html_path}")
+            page.pdf(path=pdf_path, format="A4", print_background=True, margin={"top":"14mm","bottom":"18mm","left":"12mm","right":"12mm"})
+            browser.close()
+        with open(pdf_path, 'rb') as f:
+            pdf_bytes = f.read()
+        resp = make_response(pdf_bytes)
+        resp.headers["Content-Type"] = "application/pdf"
+        resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.pdf"
+        return resp
     except Exception:
-        pass
-    # Final fallback: serve rendered page as HTML download (browser Print -> Save as PDF)
-    resp = make_response(html_str)
-    resp.headers["Content-Type"] = "text/html"
-    resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.html"
-    return resp
+        # Final universal fallback: serve HTML file for browser Print->PDF
+        with open(html_path, 'r', encoding='utf-8') as f: html_str = f.read()
+        resp = make_response(html_str)
+        resp.headers["Content-Type"] = "text/html"
+        resp.headers["Content-Disposition"] = f"attachment; filename=skill_gap_report_{analysis_id}.html"
+        return resp
 
 @app.route("/export/csv/<int:user_id>")
 def export_csv(user_id):
