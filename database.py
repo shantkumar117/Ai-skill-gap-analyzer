@@ -1,5 +1,12 @@
+import os
 import json
 import sqlite3
+try:
+    import psycopg2
+    from psycopg2 import sql
+    HAS_PG = True
+except Exception:
+    HAS_PG = False
 import secrets
 from pathlib import Path
 
@@ -64,6 +71,10 @@ ROLE_SKILLS = {
 
 def get_connection():
     DATABASE_DIR.mkdir(exist_ok=True)
+    if HAS_PG and os.getenv("DATABASE_URL"):
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        return conn
     connection = sqlite3.connect(DATABASE_PATH, timeout=10.0, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     return connection

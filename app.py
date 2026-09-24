@@ -35,6 +35,13 @@ from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_
 from services.ai_service import validate_and_sanitize, generate_response
 
 app = Flask(__name__)
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["200 per day", "50 per hour"])
+
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or os.getenv("FLASK_SECRET_KEY") or "skill-gap-analyzer-development-key-change-in-production"
 app.config["BASE_URL"] = os.getenv("BASE_URL", "").rstrip("/")
 app.config["SESSION_COOKIE_SECURE"] = True
@@ -1133,6 +1140,7 @@ def login_required(view_func=None, *, allow_guest=False):
 
 
 @app.route("/register", methods=["GET", "POST"])
+@limiter.limit("3 per hour")
 def register():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -1192,6 +1200,7 @@ def register():
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("3 per hour")
 def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -2237,6 +2246,7 @@ def forgot_username():
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
+@limiter.limit("3 per hour")
 def forgot_password():
     error = None
     sent = False
@@ -2333,3 +2343,10 @@ except Exception:
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+
+@app.before_request
+def https_redirect():
+    if request.headers.get('X-Forwarded-Proto') == 'http':
+        url = request.url.replace('http://', 'https://', 1)
+        return redirect(url, code=301)
