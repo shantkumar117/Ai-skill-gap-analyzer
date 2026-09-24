@@ -2,7 +2,9 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
+from pathlib import Path
 from urllib import request as urllib_request
 
 logging.basicConfig(
@@ -15,18 +17,34 @@ import requests
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(override=True)
+    _env_path = Path(__file__).resolve().parent / ".env"
+    try:
+        load_dotenv(_env_path, override=True)
+    except AssertionError:
+        # python-dotenv's find_dotenv raises AssertionError when called from a
+        # subprocess without a proper frame (e.g., heredoc python -). We pass
+        # the path explicitly, but still guard in case internals regress.
+        pass
 except ImportError:
     pass
 
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_dynamic_role_skills, get_all_roles, create_user, get_user_by_username, get_connection, get_user_analyses, get_analysis_by_id, delete_analysis_by_id, purge_old_analyses, delete_user_account, set_analysis_keep_forever
+from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_dynamic_role_skills, get_all_roles, create_user, get_user_by_username, get_user_by_email, get_connection, get_user_analyses, get_analysis_by_id, delete_analysis_by_id, purge_old_analyses, delete_user_account, set_analysis_keep_forever, create_reset_token, get_reset_token, mark_token_used
 from services.ai_service import validate_and_sanitize, generate_response
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "skill-gap-analyzer-development-key"
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or os.getenv("FLASK_SECRET_KEY") or "skill-gap-analyzer-development-key-change-in-production"
+app.config["BASE_URL"] = os.getenv("BASE_URL", "").rstrip("/")
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+
+def _application_url(endpoint, **kwargs):
+    base_url = app.config.get("BASE_URL") or request.url_root.rstrip("/")
+    return f"{base_url}{url_for(endpoint, **kwargs)}"
 
 EXPERIENCE_LEVELS = ["Beginner", "Intermediate", "Advanced"]
 
@@ -1133,10 +1151,40 @@ def register():
             flash("Password must be at least 6 characters.", "error")
             return render_template("register.html")
 
+        email = request.form.get("email", "").strip()
+        if not email:
+            flash("Email is required for account recovery.", "error")
+            return render_template("register.html")
         password_hash = generate_password_hash(password)
-        if create_user(username, password_hash):
-            flash("Account created successfully. Please log in.", "success")
-            return redirect(url_for("login"))
+        if create_user(username, password_hash, email):
+            # Welcome email (Brevo SMTP)
+            try:
+                from services.email_service import send_email
+                analysis_url = _application_url("analyze")
+                ok, msg = send_email(
+                    to_email=email,
+                    subject="Welcome to AI Skill Gap Analyzer",
+                    html_body=f"<h2>Welcome, {username}!</h2><p>Your account is ready. Start your skill gap analysis at <a href='{analysis_url}'>Analyze</a>.</p>",
+                    text_body=f"Welcome {username}! Start at {analysis_url}",
+                )
+                if ok:
+                    logger.info("Welcome email sent to %s (id=%s)", email, msg)
+                    flash("Account created. Welcome email sent — check inbox and spam.", "success")
+                else:
+                    logger.warning("Welcome email failed: %s", msg)
+                    flash("Account created, but welcome email failed: %s" % msg, "warning")
+            except Exception as e:
+                logger.warning("Welcome email exception (non-blocking): %s", e)
+                flash("Account created. Welcome email could not be sent.", "warning")
+            # Auto-login after signup
+            user = get_user_by_username(username)
+            if user:
+                session.clear()
+                session["user_id"] = user["id"]
+                session["username"] = user["username"]
+                session["email"] = user.get("email") or email
+            flash(f"Welcome, {username}!", "success")
+            return redirect(url_for("analyze"))
         else:
             flash("Username already exists. Choose a different one.", "error")
 
@@ -1154,6 +1202,8 @@ def login():
             return render_template("login.html")
 
         user = get_user_by_username(username)
+        if not user:
+            user = get_user_by_email(username)
         if user and check_password_hash(user["password_hash"], password):
             # Read preview data BEFORE clearing session
             name = session.get("preview_name", "")
@@ -1165,6 +1215,7 @@ def login():
             session.clear()
             session["user_id"] = user["id"]
             session["username"] = user["username"]
+            session["email"] = user.get("email") or ""
             current_skills = normalize_skills(current_skills_str) if current_skills_str else []
             if name and target_role and experience_level and current_skills:
                 # Rebuild full analysis for the logged-in user
@@ -1201,7 +1252,7 @@ def login():
                 flash("Welcome back! Your full personalized roadmap is ready.", "success")
                 return render_template("dashboard.html", data=dashboard_data)
             # If no preview was preserved, fall through to normal redirect
-            flash(f"Welcome back, {username}!", "success")
+            flash(f"Welcome back, {user['username']}!", "success")
             return redirect(url_for("analyze"))
         else:
             flash("Invalid username or password.", "error")
@@ -1256,8 +1307,43 @@ def profile():
             session.clear()
             flash("Account deleted.", "info")
             return redirect(url_for("login"))
+    if request.method == "POST" and request.form.get("new_password"):
+        current = request.form.get("current", "")
+        new_pw = request.form.get("new_password", "").strip()
+        confirm = request.form.get("confirm_password", "").strip()
+        user_id = session.get("user_id")
+        from database import get_connection
+        conn = get_connection()
+        try:
+            row = conn.execute("SELECT password_hash FROM AuthUsers WHERE id = ?", (user_id,)).fetchone()
+            if row and check_password_hash(row["password_hash"], current) and new_pw == confirm and len(new_pw) >= 6:
+                conn.execute("UPDATE AuthUsers SET password_hash = ? WHERE id = ?", (generate_password_hash(new_pw), user_id))
+                conn.commit()
+                flash("Password updated successfully.", "success")
+            else:
+                flash("Password update failed. Check current password and new values.", "error")
+        finally:
+            conn.close()
+        return redirect(url_for("profile"))
+
     analyses = get_user_analyses(session.get("user_id")) if session.get("user_id") else []
-    return render_template("profile.html", analyses=analyses)
+    # Always load email from DB so older sessions (created before email was stored) still show it
+    profile_email = session.get("email") or ""
+    if session.get("user_id") and not profile_email:
+        db_user = get_user_by_username(session.get("username") or "")
+        if db_user:
+            profile_email = db_user.get("email") or ""
+            session["email"] = profile_email
+    for a in analyses:
+        raw = a.get("analysis_date") or ""
+        try:
+            from datetime import datetime, timedelta
+            dt = datetime.strptime(str(raw), "%Y-%m-%d %H:%M:%S")
+            dt += timedelta(hours=5, minutes=30)       # align DB UTC to local
+            a["analysis_date"] = dt.strftime("%b %d, %Y · %I:%M %p").replace(" 0", " ")
+        except Exception:
+            pass  # leave as-is if parse fails
+    return render_template("profile.html", analyses=analyses, profile_email=profile_email)
 
 
 @app.route("/analyze", methods=["GET", "POST"])
@@ -1502,18 +1588,368 @@ def export_csv(user_id):
 
 
 @app.route("/export/doc/<int:user_id>")
+@login_required
 def export_doc(user_id):
-    from flask import Response
-    if not session.get("user_id"):
-        return redirect(url_for("login"))
-    connection = get_connection()
-    row = connection.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
-    connection.close()
-    if not row:
-        return "No data found", 404
-    html = f"""<html><body><h1>Skill Gap Analysis</h1><p>Match: {row['match_percentage']}%</p><p>Missing: {row['missing_skills']}</p></body></html>"""
-    return Response(html, mimetype="application/msword", headers={"Content-Disposition": "attachment; filename=analysis.doc"})
+    import json
+    import os
+    import tempfile
+    from flask import make_response
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
+    uid = session.get("user_id")
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT result_json FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        (uid,),
+    ).fetchone()
+    conn.close()
+    if not row or not row["result_json"]:
+        flash("Result not found.", "warning")
+        return redirect(url_for("profile"))
+
+    data = json.loads(row["result_json"])
+    rec = data.get("recommendations") or {}
+
+    INK = RGBColor(0x0F, 0x17, 0x2A)
+    MUTED = RGBColor(0x47, 0x55, 0x69)
+    SLATE = RGBColor(0x64, 0x74, 0x8B)
+    INDIGO = RGBColor(0x63, 0x66, 0xF1)
+    GREEN = RGBColor(0x16, 0x65, 0x34)
+    AMBER = RGBColor(0x92, 0x40, 0x0E)
+    TEAL = RGBColor(0x0F, 0x76, 0x6E)
+    LIGHT = RGBColor(0x94, 0xA3, 0xB8)
+
+    def shade_cell(cell, hex_color):
+        tc = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:fill"), hex_color)
+        shd.set(qn("w:val"), "clear")
+        tcPr.append(shd)
+
+    def set_run(run, size=10, bold=False, italic=False, color=INK, name="Calibri"):
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        run.font.italic = italic
+        run.font.color.rgb = color
+        run.font.name = name
+        r = run._element
+        rPr = r.get_or_add_rPr()
+        rFonts = rPr.find(qn("w:rFonts"))
+        if rFonts is None:
+            rFonts = OxmlElement("w:rFonts")
+            rPr.append(rFonts)
+        rFonts.set(qn("w:ascii"), name)
+        rFonts.set(qn("w:hAnsi"), name)
+
+    def add_p(text, size=10, bold=False, italic=False, color=INK, space_after=4, space_before=0, align=None):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(space_after)
+        p.paragraph_format.space_before = Pt(space_before)
+        if align is not None:
+            p.alignment = align
+        run = p.add_run(str(text) if text is not None else "")
+        set_run(run, size=size, bold=bold, italic=italic, color=color)
+        return p
+
+    def add_heading_text(text, size=14, color=INK):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(12)
+        p.paragraph_format.space_after = Pt(6)
+        pPr = p._p.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "12")
+        bottom.set(qn("w:space"), "4")
+        bottom.set(qn("w:color"), "E2E8F0")
+        pBdr.append(bottom)
+        pPr.append(pBdr)
+        run = p.add_run(str(text).upper())
+        set_run(run, size=size, bold=True, color=color)
+        return p
+
+    def add_bullet(text, size=9, color=MUTED):
+        p = doc.add_paragraph(style="List Bullet")
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.space_before = Pt(0)
+        if p.runs:
+            p.runs[0].text = str(text)
+            set_run(p.runs[0], size=size, color=color)
+        else:
+            run = p.add_run(str(text))
+            set_run(run, size=size, color=color)
+        return p
+
+    def join_list(val):
+        if isinstance(val, list):
+            return ", ".join(str(x) for x in val)
+        return str(val) if val else ""
+
+    doc = Document()
+    sec = doc.sections[0]
+    sec.page_width = Cm(21.0)
+    sec.page_height = Cm(29.7)
+    sec.top_margin = Cm(1.4)
+    sec.bottom_margin = Cm(1.8)
+    sec.left_margin = Cm(1.2)
+    sec.right_margin = Cm(1.2)
+
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(10)
+    style.font.color.rgb = INK
+
+    # Header
+    add_p("YOUR PERSONALIZED ROADMAP", size=8, bold=True, color=INDIGO, space_after=2)
+    name = data.get("name") or "You"
+    add_p(f"{name}, here is your tailored growth plan.", size=22, bold=True, color=INK, space_after=4)
+
+    role = data.get("role") or ""
+    experience = data.get("experience") or ""
+    career_goal = data.get("career_goal") or ""
+    subtitle = f"{role}  •  {experience} level"
+    if career_goal:
+        subtitle += f"  •  Focus: {career_goal}"
+    add_p(subtitle, size=10, color=MUTED, space_after=6)
+
+    match_pct = data.get("match_percentage", 0)
+    provider = data.get("ai_provider") or "AI"
+    badge = doc.add_paragraph()
+    badge.paragraph_format.space_after = Pt(10)
+    r1 = badge.add_run(f"  Match {match_pct}%  ")
+    set_run(r1, size=8, bold=True, color=GREEN)
+    r2 = badge.add_run("    ")
+    set_run(r2, size=8)
+    r3 = badge.add_run(f"  AI Generated ({provider})  ")
+    set_run(r3, size=8, bold=True, color=RGBColor(0x1E, 0x40, 0xAF))
+
+    # Strategic Assessment
+    if rec.get("summary"):
+        add_p("Strategic Assessment", size=12, bold=True, color=INK, space_before=4, space_after=3)
+        add_p(rec["summary"], size=10, color=MUTED, space_after=10)
+
+    # Metrics table
+    add_heading_text("Metrics", size=12)
+    have = data.get("have") or []
+    missing = data.get("missing") or []
+    required = data.get("required_skills") or []
+    gap_pct = data.get("gap_percentage", 0)
+
+    tbl = doc.add_table(rows=2, cols=4)
+    tbl.style = "Table Grid"
+    headers = ["Overall match", "Skills you have", "Skills to build", "Gap %"]
+    values = [
+        f"{match_pct}%",
+        str(len(have)),
+        str(len(missing)),
+        f"{gap_pct}%",
+    ]
+    notes = [
+        f"{len(have)} of {len(required)} role skills covered",
+        "Relevant competencies matched",
+        f"{gap_pct}% remaining gap",
+        "",
+    ]
+    for i, htxt in enumerate(headers):
+        cell = tbl.rows[0].cells[i]
+        cell.text = ""
+        p = cell.paragraphs[0]
+        run = p.add_run(htxt)
+        set_run(run, size=8, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+        shade_cell(cell, "0F172A")
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for i, v in enumerate(values):
+        cell = tbl.rows[1].cells[i]
+        cell.text = ""
+        p = cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(v)
+        set_run(run, size=16, bold=True, color=TEAL)
+        if notes[i]:
+            p2 = cell.add_paragraph()
+            p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run2 = p2.add_run(notes[i])
+            set_run(run2, size=7, color=SLATE)
+        shade_cell(cell, "F8FAFC")
+
+    doc.add_paragraph()
+
+    # Resume review (if present)
+    review = data.get("resume_review") or {}
+    if review:
+        add_heading_text("Resume Review", size=12)
+        strengths = review.get("strengths") or []
+        weaknesses = review.get("weaknesses") or []
+        ats = review.get("ats_keywords_missing") or []
+        formatting = review.get("formatting_notes") or ""
+        if strengths:
+            add_p("Resume Strengths", size=11, bold=True, color=GREEN, space_after=3)
+            for item in strengths:
+                add_bullet(item)
+        if weaknesses:
+            add_p("Areas to Improve", size=11, bold=True, color=AMBER, space_after=3, space_before=6)
+            for item in weaknesses:
+                add_bullet(item)
+        if ats:
+            add_p("Missing ATS Keywords", size=11, bold=True, color=RGBColor(0xB9, 0x1C, 0x1C), space_after=3, space_before=6)
+            add_p(join_list(ats), size=9, color=MUTED, space_after=6)
+        if formatting:
+            add_p("Formatting Notes", size=11, bold=True, color=INK, space_after=3, space_before=4)
+            add_p(formatting, size=9, color=MUTED, space_after=8)
+
+    # Strengths vs Opportunities
+    add_heading_text("Strengths vs. Opportunities", size=12)
+    add_p("Your toolkit", size=11, bold=True, color=GREEN, space_after=3)
+    if have:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(8)
+        for skill in have:
+            run = p.add_run(f"  {skill}  ")
+            set_run(run, size=8, bold=True, color=GREEN)
+            spacer = p.add_run(" ")
+            set_run(spacer, size=8)
+    else:
+        add_p("No matching skills yet. Your foundational pathway is outlined below.", size=9, italic=True, color=LIGHT)
+
+    add_p("Skills to acquire", size=11, bold=True, color=AMBER, space_after=3, space_before=4)
+    if missing:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(8)
+        for skill in missing:
+            run = p.add_run(f"  {skill}  ")
+            set_run(run, size=8, bold=True, color=AMBER)
+            spacer = p.add_run(" ")
+            set_run(spacer, size=8)
+    else:
+        add_p("Outstanding! You cover every core required skill for this role.", size=9, italic=True, color=LIGHT)
+
+    # Phased Learning Pathway
+    pathway = rec.get("learning_pathway") or []
+    if pathway:
+        add_heading_text("Phased Learning Pathway", size=12)
+        for idx, phase in enumerate(pathway, 1):
+            duration = phase.get("duration") or ""
+            title = phase.get("phase") or ""
+            add_p(f"0{idx}  •  {duration}  —  {title}", size=11, bold=True, color=INK, space_before=6, space_after=2)
+            if phase.get("description"):
+                add_p(phase["description"], size=9, color=MUTED, space_after=3)
+            for task in phase.get("tasks") or []:
+                add_bullet(task)
+
+    # Targeted Skill Action Plans
+    plans = rec.get("skill_action_plans") or []
+    if plans:
+        add_heading_text("Targeted Skill Action Plans", size=12)
+        for plan in plans:
+            add_p(plan.get("skill") or "", size=12, bold=True, color=INK, space_before=8, space_after=2)
+            meta = []
+            if plan.get("priority"):
+                meta.append(f"Priority: {plan.get('priority')}")
+            if plan.get("estimated_hours"):
+                meta.append(f"Hours: {plan.get('estimated_hours')}")
+            if meta:
+                add_p("  |  ".join(meta), size=8, italic=True, color=SLATE, space_after=4)
+            concepts = plan.get("core_concepts")
+            if concepts:
+                add_p("Key Concepts to Master:", size=9, bold=True, color=INK, space_after=2)
+                add_p(join_list(concepts), size=9, color=MUTED, space_after=4)
+            if plan.get("practical_exercise"):
+                add_p("Practical Exercise:", size=9, bold=True, color=INK, space_after=2)
+                add_p(plan["practical_exercise"], size=9, color=MUTED, space_after=4)
+            if plan.get("recommended_resources"):
+                add_p("Recommended Resources:", size=9, bold=True, color=INK, space_after=2)
+                add_p(join_list(plan["recommended_resources"]), size=9, color=MUTED, space_after=6)
+
+    # Portfolio projects
+    projects = rec.get("portfolio_projects") or []
+    if projects:
+        add_heading_text("Custom Portfolio Project Blueprints", size=12)
+        for proj in projects:
+            title = proj.get("title") or ""
+            diff = proj.get("difficulty") or ""
+            heading = f"{title}" + (f"  ({diff})" if diff else "")
+            add_p(heading, size=11, bold=True, color=INK, space_before=6, space_after=2)
+            if proj.get("description"):
+                add_p(proj["description"], size=9, color=MUTED, space_after=3)
+            if proj.get("skills_used"):
+                add_p("Tech Stack: " + join_list(proj["skills_used"]), size=8, italic=True, color=SLATE, space_after=3)
+            features = proj.get("key_features") or []
+            if features:
+                add_p("Key Deliverables:", size=9, bold=True, color=INK, space_after=2)
+                for feat in features:
+                    add_bullet(feat)
+
+    # What to learn first
+    add_heading_text("What to learn first", size=12)
+    high = data.get("high_priority") or []
+    medium = data.get("medium_priority") or []
+    add_p("High priority", size=11, bold=True, color=AMBER, space_after=3)
+    if high:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(6)
+        for skill in high:
+            run = p.add_run(f"  {skill}  ")
+            set_run(run, size=8, bold=True, color=AMBER)
+            spacer = p.add_run(" ")
+            set_run(spacer, size=8)
+    else:
+        add_p("No urgent high-priority gaps.", size=9, italic=True, color=LIGHT)
+
+    add_p("Medium priority", size=11, bold=True, color=RGBColor(0xB4, 0x53, 0x09), space_after=3, space_before=4)
+    if medium:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(8)
+        for skill in medium:
+            run = p.add_run(f"  {skill}  ")
+            set_run(run, size=8, bold=True, color=RGBColor(0xB4, 0x53, 0x09))
+            spacer = p.add_run(" ")
+            set_run(spacer, size=8)
+    else:
+        add_p("No medium-priority gaps.", size=9, italic=True, color=LIGHT)
+
+    # Interview tips
+    tips = rec.get("interview_tips") or []
+    if tips:
+        add_heading_text("Interview & Hiring Insights", size=12)
+        for tip in tips:
+            add_bullet(tip)
+
+    # Golden rules
+    add_heading_text("Three golden rules for success", size=12)
+    add_p("1. Master high-priority building blocks", size=10, color=MUTED, space_after=2)
+    add_p("2. Build & deploy your custom portfolio project", size=10, color=MUTED, space_after=2)
+    add_p("3. Explain architectural decisions in interviews", size=10, color=MUTED, space_after=12)
+
+    footer = doc.add_paragraph()
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer.paragraph_format.space_before = Pt(8)
+    run = footer.add_run(
+        f"Generated by AI Skill Gap Analyzer  •  {name}  •  {role}  •  {match_pct}% match"
+    )
+    set_run(run, size=8, italic=True, color=LIGHT)
+
+    tmp_path = os.path.join(tempfile.gettempdir(), f"skill_gap_report_{uid}.docx")
+    doc.save(tmp_path)
+    with open(tmp_path, "rb") as f:
+        doc_bytes = f.read()
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+
+    resp = make_response(doc_bytes)
+    resp.headers["Content-Type"] = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=skill_gap_report_{uid}.docx"
+    )
+    return resp
 
 def generate_ai_resume_analysis(role, resume_text):
     """Combined resume review and skill gap analysis via multi-provider loop."""
@@ -1748,17 +2184,152 @@ _RATE_LIMIT_SECONDS = 5
 _rate_limits = {}
 
 
+@app.route("/robots.txt")
+def robots_txt():
+    return Response("User-agent: *\nAllow: /\nSitemap: https://ai-skill-gap-analyzer.vercel.app/sitemap.xml\n", mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/</loc><priority>1.0</priority></url>
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/analyze</loc><priority>0.9</priority></url>
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/resume</loc><priority>0.9</priority></url>
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/about</loc><priority>0.5</priority></url>
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/login</loc><priority>0.3</priority></url>
+  <url><loc>https://ai-skill-gap-analyzer.vercel.app/register</loc><priority>0.3</priority></url>
+</urlset>'''
+    return Response(xml, mimetype="application/xml")
+
+
+# In-memory forgot-password rate limit (reset on restart; use Redis in real prod)
+_forgot_rate = {}
+
+def _forgot_limit(ip, max_attempts=3, window_seconds=3600):
+    now = time.time()
+    attempts = _forgot_rate.get(ip, [])
+    attempts = [t for t in attempts if now - t < window_seconds]
+    if len(attempts) >= max_attempts:
+        return False
+    attempts.append(now)
+    _forgot_rate[ip] = attempts
+    return True
+
+
+@app.route("/forgot-username", methods=["GET", "POST"])
+def forgot_username():
+    error = None
+    username = None
+    if request.method == "POST":
+        email = request.form.get("email", "").strip()
+        if not email:
+            error = "Please enter your email address."
+        elif not _forgot_limit(request.remote_addr):
+            error = "Too many attempts. Try again in an hour."
+        else:
+            user = get_user_by_email(email)
+            if user and user.get("username"):
+                username = user["username"]
+            else:
+                error = "No account found with that email."
+    return render_template("forgot_username.html", error=error, username=username)
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    error = None
+    sent = False
+    if request.method == "POST":
+        email = request.form.get("email", "").strip()
+        if not email:
+            error = "Please enter your email."
+        elif not _forgot_limit(request.remote_addr):
+            error = "Too many attempts. Try again in an hour."
+        else:
+            user = get_user_by_email(email)
+            if user:
+                token = secrets.token_urlsafe(32)
+                reset_url = _application_url("reset_password", token=token)
+                try:
+                    from services.email_service import send_email
+                    ok, msg = send_email(
+                        to_email=email,
+                        subject="Reset your AI Skill Gap Analyzer password",
+                        html_body=f"<h2>Reset your password.</h2><p>Click the secure link below to reset your password. It expires after one hour:</p><p><a href='{reset_url}'>{reset_url}</a></p><p>If you did not request this, you can ignore this email.</p>",
+                        text_body=f"Reset your AI Skill Gap Analyzer password: {reset_url}\n\nThis link expires after one hour. If you did not request this, you can ignore this email.",
+                    )
+                    if ok:
+                        create_reset_token(user["id"], token, expires_hours=1)
+                        sent = True
+                    else:
+                        logger.warning("Password reset email failed: %s", msg)
+                        error = "We could not send the reset email. Please try again or contact support."
+                except Exception as exc:
+                    logger.warning("Password reset email exception: %s", exc)
+                    error = "We could not send the reset email. Please try again or contact support."
+            else:
+                # Do not reveal whether an account exists.
+                sent = True
+    return render_template("forgot_password.html", error=error, sent=sent)
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    error = None
+    user_id = None
+    reset_row = get_reset_token(token)
+    if not reset_row:
+        error = "Invalid or expired reset link."
+    else:
+        user_id = reset_row["user_id"]
+    if request.method == "POST" and not error:
+        new_pw = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+        if len(new_pw) < 6:
+            error = "Password must be at least 6 characters."
+        elif new_pw != confirm:
+            error = "Passwords do not match."
+        else:
+            conn = get_connection()
+            try:
+                conn.execute("UPDATE AuthUsers SET password_hash = ? WHERE id = ?", (generate_password_hash(new_pw), user_id))
+                conn.commit()
+                user = dict(conn.execute("SELECT * FROM AuthUsers WHERE id = ?", (user_id,)).fetchone()) if user_id else None
+            finally:
+                conn.close()
+            mark_token_used(token)
+            try:
+                from services.email_service import send_email
+                reset_url = _application_url("login")
+                if user and user.get("email"):
+                    send_email(
+                        to_email=user["email"],
+                        subject="Your AI Skill Gap Analyzer password was changed",
+                        html_body=f"<h2>Password changed.</h2><p>Your AI Skill Gap Analyzer password has been updated. If you did not request this, please reset your password immediately: <a href='{reset_url}'>Log in / reset</a>.</p>",
+                        text_body=f"Your AI Skill Gap Analyzer password was changed. If you did not request this, please log in or reset at {reset_url}",
+                    )
+                else:
+                    logger.warning("Password-changed notification skipped: account email is missing")
+            except Exception as exc:
+                logger.warning("Password-changed notification exception (non-blocking): %s", exc)
+            flash("Password updated. Please log in.", "success")
+            return redirect(url_for("login"))
+    return render_template("reset_password.html", error=error, token=token)
+
+
 @app.route("/health")
 def health():
     return {"status": "ok", "ai": "gemini", "model": os.getenv("GEMINI_MODEL", "unknown")}
 
 
-if __name__ == "__main__":
+# Initialize once on import (works for local + serverless reloads)
+try:
     init_db()
-    try:
-        purge_old_analyses(30)
-        logger.info("Auto-purged analyses older than 30 days.")
-    except Exception as e:
-        logger.warning("Auto-purge failed: %s", e)
-    app.run(debug=True)
+    purge_old_analyses(30)
+except Exception:
+    pass
 
+
+if __name__ == "__main__":
+    app.run(debug=True)

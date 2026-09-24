@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
-{% block title %}Home | AI Skill Gap Analyzer{% endblock %}
+{% block title %}AI Skill Gap Analyzer — Skill Assessment, Roadmap & Resume Analysis{% endblock %}
 {% block content %}
-<section class="hero-section">
+<section class="hero-section" aria-label="Hero">
   <div class="hero-copy">
     <p class="eyebrow">Career clarity, one skill at a time</p>
     <h1>Turn your current skills into a clear next step.</h1>
-    <p class="hero-text">Compare what you know with the skills needed for your dream software role. Get a practical learning order and project ideas in seconds.</p>
-    <a class="button button-primary" href="{{ url_for('analyze') }}">Start Analysis <span aria-hidden="true">-></span></a>
+    <p class="hero-text">Compare what you know with the skills needed for your dream software role. Get a practical learning order, portfolio project ideas, and interview preparation guidance in seconds — free and private.</p>
+    <a class="button button-primary" href="{{ url_for('analyze') }}">Start Analysis <span aria-hidden="true">→</span></a>
   </div>
   <div class="hero-panel" aria-label="Application preview">
     <div class="mini-label">YOUR CAREER SNAPSHOT</div>
@@ -16,9 +16,93 @@
     <div class="mini-tags"><span>Python</span><span>SQL</span><span>REST API</span></div>
   </div>
 </section>
-<section class="feature-grid">
-  <article><span class="feature-number">01</span><h2>Choose a direction</h2><p>Select from eight common software career paths.</p></article>
-  <article><span class="feature-number">02</span><h2>See the gap</h2><p>Understand your strengths and the missing building blocks.</p></article>
-  <article><span class="feature-number">03</span><h2>Take action</h2><p>Follow a personalized order with projects you can actually build.</p></article>
+
+<section class="rich-content" aria-label="What this tool does">
+  <h2>What is AI Skill Gap Analysis?</h2>
+  <p>Skill gap analysis compares your current technical abilities against the requirements of a target software role. Instead of guessing which tutorials to take, you get a prioritized roadmap that tells you exactly which skills to build, in what order, with time estimates and hands-on project ideas that can become portfolio evidence.</p>
+  <p>Whether you are a student choosing between backend, frontend, AI, or DevOps paths — or a professional switching careers — the analyzer turns a broad goal into a realistic, step-by-step learning plan.</p>
+
+  <div class="feature-grid" role="list" aria-label="Key capabilities">
+    <article role="listitem">
+      <span class="feature-number" aria-hidden="true">01</span>
+      <h3>Choose any direction</h3>
+      <p>Select from common roles — Frontend, Backend, Full Stack, AI/ML, Data Scientist, DevOps, Mobile, Cybersecurity — or type any custom role such as AI Engineer or Cloud Architect.</p>
+    </article>
+    <article role="listitem">
+      <span class="feature-number" aria-hidden="true">02</span>
+      <h3>See the real gap</h3>
+      <p>Understand your strengths, the missing building blocks, and which gaps are high priority versus medium priority. The match score shows your progress at a glance.</p>
+    </article>
+    <article role="listitem">
+      <span class="feature-number" aria-hidden="true">03</span>
+      <h3>Take action</h3>
+      <p>Follow a phased learning pathway with targeted skill action plans, practical exercises, recommended resources, and custom portfolio project blueprints designed around your existing toolkit.</p>
+    </article>
+    <article role="listitem">
+      <span class="feature-number" aria-hidden="true">04</span>
+      <h3>Prepare for interviews</h3>
+      <p>Get hiring insights, common interview themes, and practical guidance to explain your growth path and project decisions confidently.</p>
+    </article>
+  </div>
+
+  <h2>From resume to career roadmap</h2>
+  <p>Not sure what skills you already have? Paste or upload your resume and the tool extracts your competencies, reviews resume quality for ATS keywords and formatting, and builds the same personalized roadmap — combining resume review with gap analysis.</p>
+
+  <h2>How it works</h2>
+  <ol>
+    <li>Enter your name, experience level, and target job role.</li>
+    <li>List your current skills, or upload a resume for automatic extraction.</li>
+    <li>Receive an AI-powered assessment with a percentage match, missing skills, and recommendations.</li>
+    <li>Use the phased pathway and portfolio blueprints to start building evidence.</li>
+  </ol>
+
+  <h2>Frequently asked questions</h2>
+  <div class="faq-list" itemscope itemtype="https://schema.org/FAQPage">
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">What is a skill gap analysis?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <div itemprop="text"><p>A skill gap analysis compares your existing skills to the requirements of a target role. It reveals which competencies you already have, which are missing, and how to close those gaps efficiently.</p></div>
+      </div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Can I analyze a custom role?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <div itemprop="text"><p>Yes. Choose a preset role or type any custom role — for example AI Engineer, DevOps Lead, Cloud Architect, Data Engineer, or Cybersecurity Specialist.</p></div>
+      </div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Is the analysis private?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <div itemprop="text"><p>Yes. Analyses are saved only to your account and can be deleted at any time. Auto-cleanup removes analyses older than 30 days unless you choose to keep them permanently.</p></div>
+      </div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Can I export my report?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <div itemprop="text"><p>Yes. You can export a professional PDF report or a DOCX document with the full roadmap, metrics, and recommendations.</p></div>
+      </div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Does this help with portfolio projects?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+        <div itemprop="text"><p>Yes. Each analysis includes custom portfolio project blueprints that combine your existing skills with the new ones you need to build, giving you practical, interview-ready evidence.</p></div>
+      </div>
+    </div>
+  </div>
 </section>
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"WebApplication",
+  "name":"AI Skill Gap Analyzer",
+  "url":"https://ai-skill-gap-analyzer.vercel.app/",
+  "description":"Compare your skills with a target software role. AI Skill Gap Analyzer delivers a personalized learning roadmap, gap analysis, portfolio projects, and interview preparation — free and private.",
+  "applicationCategory":"EducationApplication",
+  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+  "creator":{"@type":"Organization","name":"AI Skill Gap Analyzer"},
+  "potentialAction":{"@type":"ViewAction","target":"https://ai-skill-gap-analyzer.vercel.app/analyze"},
+  "mainEntityOfPage":{"@type":"WebPage","@id":"https://ai-skill-gap-analyzer.vercel.app/"}
+}
+</script>
 {% endblock %}

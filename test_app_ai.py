@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest.mock import patch
 
 import app
 from database import init_db, create_user, get_connection
@@ -176,7 +177,8 @@ class AiRecommendationTests(unittest.TestCase):
         self.assertEqual(result["portfolio_projects"][0]["title"], "Custom Kanban App")
         self.assertEqual(result["interview_tips"], ["Focus on component lifecycle"])
 
-    def test_auth_flow(self):
+    @patch("services.email_service.send_email", return_value=(True, "brevo-test-id"))
+    def test_auth_flow(self, mock_send_email):
         client = app.app.test_client()
 
         # POST /analyze now allows guest (preview mode), so 200 is expected
@@ -186,12 +188,14 @@ class AiRecommendationTests(unittest.TestCase):
         # Test registration
         reg_data = {
             "username": "newuser",
+            "email": "newuser@example.com",
             "password": "password123",
             "confirm_password": "password123"
         }
         response = client.post("/register", data=reg_data, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Account created successfully", response.data)
+        self.assertIn(b"Account created. Welcome email sent", response.data)
+        mock_send_email.assert_called_once()
 
         # Test login success
         login_data = {

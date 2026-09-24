@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ai-skill-gap-analyzer.vercel.app/sitemap.xml

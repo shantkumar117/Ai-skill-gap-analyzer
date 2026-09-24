@@ -3,7 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}AI Skill Gap Analyzer{% endblock %}</title>
+  <meta name="theme-color" content="#234052">
+  <title>{% block title %}AI Skill Gap Analyzer — Skill Assessment & Career Roadmap{% endblock %}</title>
+  <meta name="description" content="Compare your skills against any software role. AI Skill Gap Analyzer delivers a personalized learning roadmap, gap analysis, portfolio projects, and interview readiness — free and private.">
+  <link rel="canonical" href="{{ request.url_root.replace('http://', 'https://').rstrip('/') }}{{ request.path }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AI Skill Gap Analyzer — Skill Assessment & Career Roadmap">
+  <meta property="og:description" content="Compare your skills to a target role. Get a personalized learning plan, portfolio ideas, and AI-powered recommendations.">
+  <meta property="og:url" content="{{ request.url_root.replace('http://', 'https://').rstrip('/') }}{{ request.path }}">
+  <meta property="og:image" content="{{ url_for('static', filename='img/favicon.svg', _external=True) }}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="AI Skill Gap Analyzer">
+  <meta name="twitter:description" content="Compare your skills to any software role — free AI-powered gap analysis and roadmap.">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -17,8 +29,7 @@
       <a href="{{ url_for('resume_analysis') }}">Resume</a>
       <a href="{{ url_for('about') }}">About</a>
       {% if session.get('username') %}
-        <span class="nav-user">Hi, {{ session['username'] }}</span>
-        <a href="{{ url_for('profile') }}">Profile</a>
+        <a href="{{ url_for('profile') }}" class="nav-user">{{ session['username'] }}</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
         <a href="{{ url_for('login') }}">Login</a>

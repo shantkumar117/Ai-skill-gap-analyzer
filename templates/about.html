@@ -1,6 +1,80 @@
 {% extends 'base.html' %}
-{% block title %}About | AI Skill Gap Analyzer{% endblock %}
+{% block title %}About — AI Skill Gap Analyzer{% endblock %}
 {% block content %}
-<section class="form-intro about-intro"><p class="eyebrow">About the project</p><h1>A small tool for a big question.</h1><p>AI Skill Gap Analyzer helps students turn a broad career goal into a realistic learning plan.</p></section>
-<section class="about-grid"><article class="dashboard-card"><p class="eyebrow">01 / Problem</p><h2>Where should I focus?</h2><p>Students often collect tutorials without knowing which skills matter most for a target role. This application compares current skills with a clear role database.</p></article><article class="dashboard-card"><p class="eyebrow">02 / Objective</p><h2>Make learning actionable.</h2><p>The result is a simple score, a visible skill gap, a priority order, and projects that can become portfolio evidence.</p></article><article class="dashboard-card tech-card"><p class="eyebrow">03 / Built with</p><div class="tech-list"><span>Python + Flask</span><span>SQLite database</span><span>HTML + CSS + JavaScript</span><span>Chart.js visualization</span><span>Rule-based AI fallback</span></div></article></section>
+<section class="form-intro about-intro" aria-label="About introduction">
+  <p class="eyebrow">About the project</p>
+  <h1>A small tool for a big question.</h1>
+  <p>AI Skill Gap Analyzer helps students and professionals turn a broad career goal into a realistic, step-by-step learning plan. It compares your current skills against any target software role, reveals the gap, and delivers an AI-powered roadmap with portfolio projects and interview readiness tips.</p>
+</section>
+
+<section class="about-grid" aria-label="What it solves">
+  <article class="dashboard-card">
+    <p class="eyebrow">01 / Problem</p>
+    <h2>Where should I focus?</h2>
+    <p>Many learners collect tutorials without knowing which skills matter most for their target role. This tool compares current skills with a clear role database and discovers missing competencies — so you stop guessing and start building.</p>
+  </article>
+  <article class="dashboard-card">
+    <p class="eyebrow">02 / Objective</p>
+    <h2>Make learning actionable.</h2>
+    <p>The result is a simple score, a visible skill gap, a priority order, and projects that can become portfolio evidence. It works for beginners choosing a first path and for experienced professionals switching careers.</p>
+  </article>
+  <article class="dashboard-card tech-card">
+    <p class="eyebrow">03 / Built with</p>
+    <div class="tech-list">
+      <span>Python + Flask</span>
+      <span>SQLite database</span>
+      <span>HTML + CSS + JavaScript</span>
+      <span>Chart.js visualization</span>
+      <span>AI recommendations (Gemini / Anthropic / OpenAI)</span>
+    </div>
+  </article>
+</section>
+
+<section class="rich-content" aria-label="Career topics">
+  <h2>Who this is for</h2>
+  <p>Students deciding between frontend, backend, AI/ML, data, DevOps, or cybersecurity. Career-changers moving into software from another field. Self-taught developers looking for a structured path to a first job. Hiring managers and educators who want a common framework for skills conversation.</p>
+
+  <h2>Search topics covered</h2>
+  <ul>
+    <li>AI skill gap analysis</li>
+    <li>Skill assessment for software roles</li>
+    <li>Career roadmap generation</li>
+    <li>Resume-to-skill-gap analysis</li>
+    <li>Role-specific learning paths</li>
+    <li>Portfolio project recommendations</li>
+    <li>Interview preparation and readiness</li>
+    <li>Custom role discovery (AI Engineer, Cloud Architect, Data Engineer, and more)</li>
+  </ul>
+
+  <h2>Frequently asked questions</h2>
+  <div class="faq-list" itemscope itemtype="https://schema.org/FAQPage">
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">How does the skill gap analysis work?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer"><div itemprop="text"><p>You enter your current skills and a target role. The tool compares them, calculates a match percentage, lists missing skills by priority, and produces a phased roadmap with action plans and portfolio ideas.</p></div></div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Can I use a custom role?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer"><div itemprop="text"><p>Yes. Choose from preset roles or type any custom role — the AI discovers required skills dynamically and caches them for future lookups.</p></div></div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Is my data private?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer"><div itemprop="text"><p>Yes. Analyses are stored per account, can be deleted manually, and older entries are automatically cleaned up after 30 days unless kept permanently.</p></div></div>
+    </div>
+    <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+      <h3 itemprop="name">Can I export results?</h3>
+      <div itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer"><div itemprop="text"><p>Yes. Export a professional PDF or DOCX report with metrics, recommendations, and the full roadmap.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"WebApplication",
+  "name":"AI Skill Gap Analyzer",
+  "url":"{{ url_for('about', _external=True) }}",
+  "description":"Compare your skills to a target role and receive an AI-powered gap analysis, phased learning roadmap, portfolio project ideas, and interview preparation guidance.",
+  "applicationCategory":"EducationApplication"
+}
+</script>
 {% endblock %}

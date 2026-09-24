@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -63,7 +64,7 @@ ROLE_SKILLS = {
 
 def get_connection():
     DATABASE_DIR.mkdir(exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10.0, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -75,7 +76,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS AuthUsers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL
+            password_hash TEXT NOT NULL,
+            email TEXT UNIQUE
         );
         CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +94,14 @@ def init_db():
             role TEXT NOT NULL,
             skill_name TEXT NOT NULL,
             importance TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS PasswordReset (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            used INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES AuthUsers (id)
         );
         CREATE TABLE IF NOT EXISTS UserSkills (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,12 +139,12 @@ def init_db():
     connection.close()
 
 
-def create_user(username, password_hash):
+def create_user(username, password_hash, email=None):
     connection = get_connection()
     try:
         connection.execute(
-            "INSERT INTO AuthUsers (username, password_hash) VALUES (?, ?)",
-            (username, password_hash),
+            "INSERT INTO AuthUsers (username, password_hash, email) VALUES (?, ?, ?)",
+            (username, password_hash, email),
         )
         connection.commit()
         return True
@@ -146,35 +156,46 @@ def create_user(username, password_hash):
 
 def get_user_by_username(username):
     connection = get_connection()
-    row = connection.execute(
-        "SELECT * FROM AuthUsers WHERE username = ?",
-        (username,),
-    ).fetchone()
-    connection.close()
+    try:
+        row = connection.execute(
+            "SELECT * FROM AuthUsers WHERE username = ?",
+            (username,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return dict(row) if row else None
+
+
+def get_user_by_email(email):
+    connection = get_connection()
+    try:
+        row = connection.execute("SELECT * FROM AuthUsers WHERE email = ?", (email,)).fetchone()
+    finally:
+        connection.close()
     return dict(row) if row else None
 
 
 def save_analysis(user_id, name, experience_level, target_role, current_skills, match_percentage, missing_skills, recommendations):
     connection = get_connection()
-    # Insert/update Users row linked to auth user
-    cursor = connection.execute(
-        "INSERT OR IGNORE INTO Users (id, name, experience_level, target_role) VALUES (?, ?, ?, ?)",
-        (user_id, name, experience_level, target_role),
-    )
-    # If already exists, update name/experience/role
-    connection.execute(
-        "UPDATE Users SET name = ?, experience_level = ?, target_role = ? WHERE id = ?",
-        (name, experience_level, target_role, user_id),
-    )
-    for skill in current_skills:
-        connection.execute("INSERT OR IGNORE INTO Skills (skill_name) VALUES (?)", (skill,))
-        connection.execute("INSERT OR IGNORE INTO UserSkills (user_id, skill_name) VALUES (?, ?)", (user_id, skill))
-    connection.execute(
-        "INSERT INTO Analysis (user_id, match_percentage, missing_skills, recommendations, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
-        (user_id, match_percentage, json.dumps(missing_skills), json.dumps(recommendations)),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        existing = connection.execute("SELECT id, username FROM AuthUsers WHERE id = ?", (user_id,)).fetchone()
+        if existing:
+            # Only overwrite the login username if it hasn't been changed to a different display name already; avoid UNIQUE crash
+            if name and name != existing["username"]:
+                try:
+                    connection.execute("UPDATE AuthUsers SET username = ? WHERE id = ?", (name, user_id))
+                except sqlite3.IntegrityError:
+                    pass  # another account already uses this display name
+        connection.execute(
+            "INSERT OR IGNORE INTO Analysis (user_id, match_percentage, missing_skills, recommendations, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+            (user_id, match_percentage, json.dumps(missing_skills), json.dumps(recommendations)),
+        )
+        for skill in current_skills:
+            connection.execute("INSERT OR IGNORE INTO Skills (skill_name) VALUES (?)", (skill,))
+            connection.execute("INSERT OR IGNORE INTO UserSkills (user_id, skill_name) VALUES (?, ?)", (user_id, skill))
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def save_dynamic_role_skills(role, skills_list):
@@ -226,11 +247,13 @@ def get_role_skills(role):
 
 def get_user_analyses(user_id):
     connection = get_connection()
-    rows = connection.execute(
-        "SELECT a.id AS analysis_id, u.name, COALESCE(a.target_role, u.target_role) AS role, a.match_percentage, a.missing_skills, COALESCE(a.created_at, datetime('now')) AS analysis_date, a.keep_forever FROM Analysis a JOIN Users u ON a.user_id = u.id WHERE a.user_id = ? ORDER BY a.created_at DESC",
-        (user_id,),
-    ).fetchall()
-    connection.close()
+    try:
+        rows = connection.execute(
+            "SELECT a.id AS analysis_id, au.username AS name, COALESCE(a.target_role, au.username) AS role, a.match_percentage, a.missing_skills, COALESCE(strftime('%Y-%m-%d %H:%M:%S', a.created_at), datetime('now')) AS analysis_date, MAX(0, 30 - CAST((julianday('now') - julianday(a.created_at)) AS INTEGER)) AS days_remaining, a.keep_forever FROM Analysis a JOIN AuthUsers au ON a.user_id = au.id WHERE a.user_id = ? AND a.result_json IS NOT NULL AND a.result_json != '' ORDER BY a.created_at DESC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        connection.close()
     result = []
     for r in rows:
         d = dict(r)
@@ -241,59 +264,99 @@ def get_user_analyses(user_id):
 
 def delete_user_account(user_id):
     connection = get_connection()
-    connection.execute("DELETE FROM AuthUsers WHERE id = ?", (user_id,))
-    connection.execute("DELETE FROM Analysis WHERE user_id = ?", (user_id,))
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute("DELETE FROM AuthUsers WHERE id = ?", (user_id,))
+        connection.execute("DELETE FROM Analysis WHERE user_id = ?", (user_id,))
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def get_analysis_by_id(analysis_id, user_id):
     connection = get_connection()
-    row = connection.execute(
-        "SELECT a.*, u.name FROM Analysis a JOIN Users u ON a.user_id = u.id WHERE a.id = ? AND a.user_id = ?",
-        (analysis_id, user_id),
-    ).fetchone()
-    connection.close()
+    try:
+        row = connection.execute(
+            "SELECT a.*, au.username AS name FROM Analysis a JOIN AuthUsers au ON a.user_id = au.id WHERE a.id = ? AND a.user_id = ?",
+            (analysis_id, user_id),
+        ).fetchone()
+    finally:
+        connection.close()
     return dict(row) if row else None
 
 
 def save_full_analysis_result(user_id, name, experience_level, target_role, current_skills, match_percentage, missing_skills, recommendations, dashboard_json):
     connection = get_connection()
-    connection.execute(
-        "INSERT INTO Analysis (user_id, match_percentage, missing_skills, recommendations, created_at, result_json, target_role) VALUES (?, ?, ?, ?, datetime('now'), ?, ?)",
-        (user_id, match_percentage, json.dumps(missing_skills), json.dumps(recommendations), dashboard_json, target_role),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute(
+            "INSERT INTO Analysis (user_id, match_percentage, missing_skills, recommendations, created_at, result_json, target_role) VALUES (?, ?, ?, ?, datetime('now'), ?, ?)",
+            (user_id, match_percentage, json.dumps(missing_skills), json.dumps(recommendations), dashboard_json, target_role),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def purge_old_analyses(days=30):
     connection = get_connection()
-    connection.execute(
-        "DELETE FROM Analysis WHERE created_at < datetime('now', '-30 days') AND keep_forever = 0"
-    )
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute("DELETE FROM Analysis WHERE created_at < datetime('now', '-30 days') AND keep_forever = 0")
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def set_analysis_keep_forever(analysis_id, user_id, keep=1):
     connection = get_connection()
-    connection.execute(
-        "UPDATE Analysis SET keep_forever = ? WHERE id = ? AND user_id = ?",
-        (keep, analysis_id, user_id),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute(
+            "UPDATE Analysis SET keep_forever = ? WHERE id = ? AND user_id = ?",
+            (keep, analysis_id, user_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def delete_analysis_by_id(analysis_id, user_id):
     connection = get_connection()
-    connection.execute(
-        "DELETE FROM Analysis WHERE id = ? AND user_id = ?",
-        (analysis_id, user_id),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        connection.execute("DELETE FROM Analysis WHERE id = ? AND user_id = ?", (analysis_id, user_id))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def create_reset_token(user_id, token, expires_hours=1):
+    connection = get_connection()
+    try:
+        connection.execute(
+            "INSERT INTO PasswordReset (user_id, token, expires_at, used) VALUES (?, ?, datetime('now', '+' || ? || ' hours'), 0)",
+            (user_id, token, expires_hours),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get_reset_token(token):
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            "SELECT * FROM PasswordReset WHERE token = ? AND used = 0 AND expires_at > datetime('now')",
+            (token,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return dict(row) if row else None
+
+
+def mark_token_used(token):
+    connection = get_connection()
+    try:
+        connection.execute("UPDATE PasswordReset SET used = 1 WHERE token = ?", (token,))
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def get_all_roles():

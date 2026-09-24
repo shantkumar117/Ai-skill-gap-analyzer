@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Forgot Username — AI Skill Gap Analyzer{% endblock %}
+{% block content %}
+<section class="form-intro" aria-label="Forgot username">
+  <p class="eyebrow">Account Recovery</p>
+  <h1>Find your username.</h1>
+  <p>Enter the email on your account. If it matches, we'll show your username.</p>
+</section>
+<form method="post" class="analysis-form" style="max-width:420px;margin:0 auto;">
+  <label>Email address <input type="email" name="email" placeholder="you@example.com" required></label>
+  <button class="button button-primary" type="submit">Look up username</button>
+</form>
+{% if username %}<div class="summary-banner" style="margin-top:16px;"><h3>Your username is: {{ username }}</h3><a href="{{ url_for('login') }}">Go to login</a></div>{% endif %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+{% endblock %}
