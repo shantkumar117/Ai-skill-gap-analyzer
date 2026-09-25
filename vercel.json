@@ -1,1 +1,1 @@
-{"version":2,"buildCommand":"pip install -r requirements.txt","routes":[{"src":"/api/index","dest":"/api/index"},{"src":"/(.*)","dest":"/api/index"}],"functions":{"api/index.py":{"maxDuration":60}},"env":{"PYTHON_VERSION":"3.12"}}
+{"version":2,"buildCommand":"pip install -r requirements.txt","routes":[{"src":"/static/(.*)","dest":"/static/$1"},{"src":"/api/index","dest":"/api/index"},{"src":"/(.*)","dest":"/api/index"}],"functions":{"api/index.py":{"maxDuration":60}},"env":{"PYTHON_VERSION":"3.12"}}
