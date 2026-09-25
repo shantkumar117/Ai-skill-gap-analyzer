@@ -47,7 +47,6 @@ class PGConnectionWrapper:
     def execute(self, query, params=()):
         cur = self._conn.cursor()
         cur.execute(_adapt_sql_for_pg(query), params or ())
-        cur.rowcount = cur.rowcount or -1
         return cur
 
     def executescript(self, script):
