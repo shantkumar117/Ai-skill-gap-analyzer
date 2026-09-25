@@ -1,5 +1,12 @@
 {
   "version": 2,
+  "buildCommand": "pip install -r requirements.txt",
+  "installCommand": "pip install -r requirements.txt",
+  "functions": {
+    "app.py": {
+      "maxDuration": 60
+    }
+  },
   "env": {
     "PYTHON_VERSION": "3.12"
   }
