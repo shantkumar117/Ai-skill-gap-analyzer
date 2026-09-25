@@ -35,16 +35,14 @@ from database import ROLE_SKILLS, get_role_skills, init_db, save_analysis, save_
 from services.ai_service import validate_and_sanitize, generate_response
 
 app = Flask(__name__)
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 limiter = Limiter(key_func=get_remote_address, app=app, default_limits=["200 per day", "50 per hour"])
 
+_is_prod = bool(os.getenv("VERCEL") or os.getenv("FLASK_ENV") == "production")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or os.getenv("FLASK_SECRET_KEY") or "skill-gap-analyzer-development-key-change-in-production"
 app.config["BASE_URL"] = os.getenv("BASE_URL", "").rstrip("/")
-app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SECURE"] = _is_prod
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
@@ -1140,7 +1138,7 @@ def login_required(view_func=None, *, allow_guest=False):
 
 
 @app.route("/register", methods=["GET", "POST"])
-@limiter.limit("3 per hour")
+@limiter.limit("10 per minute")
 def register():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -1200,7 +1198,7 @@ def register():
 
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("3 per hour")
+@limiter.limit("10 per minute")
 def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -2246,7 +2244,7 @@ def forgot_username():
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
-@limiter.limit("3 per hour")
+@limiter.limit("10 per minute")
 def forgot_password():
     error = None
     sent = False

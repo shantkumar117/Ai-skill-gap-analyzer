@@ -1,9 +1,10 @@
 import os
 import json
+import re
 import sqlite3
 try:
     import psycopg2
-    from psycopg2 import sql
+    import psycopg2.extras
     HAS_PG = True
 except Exception:
     HAS_PG = False
@@ -13,6 +14,59 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_DIR = BASE_DIR / "database"
 DATABASE_PATH = DATABASE_DIR / "skill_gap.db"
+
+
+def _integrity_errors():
+    errors = [sqlite3.IntegrityError]
+    if HAS_PG:
+        errors.append(psycopg2.IntegrityError)
+    return tuple(errors)
+
+
+def _adapt_sql_for_pg(query):
+    """Translate SQLite SQL so it runs on Postgres."""
+    q = query
+    if q.strip().upper().startswith("INSERT OR IGNORE"):
+        q = re.sub(r"(?i)^INSERT OR IGNORE", "INSERT", q, count=1)
+        q = q.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+    q = q.replace("datetime('now', '+' || ? || ' hours')", "NOW() + make_interval(hours => %s)")
+    q = q.replace("datetime('now', '-30 days')", "NOW() - INTERVAL '30 days'")
+    q = q.replace("datetime('now')", "NOW()")
+    q = q.replace("strftime('%Y-%m-%d %H:%M:%S', a.created_at)", "to_char(a.created_at, 'YYYY-MM-DD HH24:MI:SS')")
+    q = q.replace("julianday('now')", "(EXTRACT(EPOCH FROM NOW())/86400.0)")
+    q = q.replace("julianday(a.created_at)", "(EXTRACT(EPOCH FROM a.created_at)/86400.0)")
+    q = q.replace("MAX(0,", "GREATEST(0,")
+    q = q.replace("?", "%s")
+    return q
+
+
+class PGConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query, params=()):
+        cur = self._conn.cursor()
+        cur.execute(_adapt_sql_for_pg(query), params or ())
+        return cur
+
+    def executescript(self, script):
+        # Schema already created in Supabase; skip SQLite DDL on Postgres.
+        return None
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+def wrap_connection(conn):
+    if hasattr(conn, "cursor") and not hasattr(conn, "execute"):
+        return PGConnectionWrapper(conn)
+    return conn
 
 ROLE_SKILLS = {
     "Frontend Developer": [
@@ -74,7 +128,7 @@ def get_connection():
     if HAS_PG and os.getenv("DATABASE_URL"):
         conn = psycopg2.connect(os.getenv("DATABASE_URL"))
         conn.cursor_factory = psycopg2.extras.RealDictCursor
-        return conn
+        return wrap_connection(conn)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10.0, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     return connection
@@ -154,12 +208,18 @@ def create_user(username, password_hash, email=None):
     connection = get_connection()
     try:
         connection.execute(
-            "INSERT INTO AuthUsers (username, password_hash, email) VALUES (?, ?, ?)",
+            "INSERT INTO AuthUsers (username, password_hash, email) VALUES (%s, %s, %s)",
             (username, password_hash, email),
+        )
+        user_id = connection.execute("SELECT lastval()").fetchone()[0]
+        connection.execute(
+            "INSERT OR IGNORE INTO Users (id, name, experience_level, target_role) VALUES (%s, %s, %s, %s)",
+            (user_id, username, "Beginner", "Software Engineer"),
         )
         connection.commit()
         return True
-    except sqlite3.IntegrityError:
+    except _integrity_errors():
+        connection.rollback()
         return False
     finally:
         connection.close()
@@ -195,8 +255,8 @@ def save_analysis(user_id, name, experience_level, target_role, current_skills, 
             if name and name != existing["username"]:
                 try:
                     connection.execute("UPDATE AuthUsers SET username = ? WHERE id = ?", (name, user_id))
-                except sqlite3.IntegrityError:
-                    pass  # another account already uses this display name
+                except _integrity_errors():
+                    connection.rollback()
         connection.execute(
             "INSERT OR IGNORE INTO Analysis (user_id, match_percentage, missing_skills, recommendations, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
             (user_id, match_percentage, json.dumps(missing_skills), json.dumps(recommendations)),
