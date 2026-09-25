@@ -1325,9 +1325,9 @@ def profile():
         from database import get_connection
         conn = get_connection()
         try:
-            row = conn.execute("SELECT password_hash FROM AuthUsers WHERE id = ?", (user_id,)).fetchone()
+            row = conn.execute("SELECT password_hash FROM AuthUsers WHERE id = %s", (user_id,)).fetchone()
             if row and check_password_hash(row["password_hash"], current) and new_pw == confirm and len(new_pw) >= 6:
-                conn.execute("UPDATE AuthUsers SET password_hash = ? WHERE id = ?", (generate_password_hash(new_pw), user_id))
+                conn.execute("UPDATE AuthUsers SET password_hash = %s WHERE id = %s", (generate_password_hash(new_pw), user_id))
                 conn.commit()
                 flash("Password updated successfully.", "success")
             else:
@@ -1584,7 +1584,7 @@ def export_csv(user_id):
     if not session.get("user_id"):
         return redirect(url_for("login"))
     connection = get_connection()
-    row = connection.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    row = connection.execute("SELECT * FROM Analysis WHERE user_id = %s ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
     connection.close()
     if not row:
         return "No data found", 404
@@ -2057,8 +2057,8 @@ def assistant_chat():
     if user_id:
         try:
             conn = get_connection()
-            user_row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
-            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+            user_row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
+            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = %s ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
             skill_rows = conn.execute("SELECT skill_name FROM UserSkills WHERE user_id = ?", (user_id,)).fetchall()
             conn.close()
             if user_row:
@@ -2157,8 +2157,8 @@ def _build_assistant_context(user_id, session_obj):
     if user_id:
         try:
             conn = get_connection()
-            user_row = conn.execute("SELECT * FROM Users WHERE id = ?", (user_id,)).fetchone()
-            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+            user_row = conn.execute("SELECT * FROM Users WHERE id = %s", (user_id,)).fetchone()
+            latest = conn.execute("SELECT * FROM Analysis WHERE user_id = %s ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
             skill_rows = conn.execute("SELECT skill_name FROM UserSkills WHERE user_id = ?", (user_id,)).fetchall()
             conn.close()
             if user_row:
@@ -2304,9 +2304,9 @@ def reset_password(token):
         else:
             conn = get_connection()
             try:
-                conn.execute("UPDATE AuthUsers SET password_hash = ? WHERE id = ?", (generate_password_hash(new_pw), user_id))
+                conn.execute("UPDATE AuthUsers SET password_hash = %s WHERE id = %s", (generate_password_hash(new_pw), user_id))
                 conn.commit()
-                user = dict(conn.execute("SELECT * FROM AuthUsers WHERE id = ?", (user_id,)).fetchone()) if user_id else None
+                user = dict(conn.execute("SELECT * FROM AuthUsers WHERE id = %s", (user_id,)).fetchone()) if user_id else None
             finally:
                 conn.close()
             mark_token_used(token)

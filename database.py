@@ -208,11 +208,7 @@ def init_db():
 def create_user(username, password_hash, email=None):
     connection = get_connection()
     try:
-        connection.execute(
-            "INSERT INTO AuthUsers (username, password_hash, email) VALUES (%s, %s, %s)",
-            (username, password_hash, email),
-        )
-        user_id = connection.execute("SELECT lastval()").fetchone()[0]
+        user_id = connection.execute("INSERT INTO AuthUsers (username, password_hash, email) VALUES (%s, %s, %s) RETURNING id", (username, password_hash, email)).fetchone()[0]
         connection.execute(
             "INSERT OR IGNORE INTO Users (id, name, experience_level, target_role) VALUES (%s, %s, %s, %s)",
             (user_id, username, "Beginner", "Software Engineer"),
@@ -230,7 +226,7 @@ def get_user_by_username(username):
     connection = get_connection()
     try:
         row = connection.execute(
-            "SELECT * FROM AuthUsers WHERE username = ?",
+            "SELECT * FROM AuthUsers WHERE username = %s",
             (username,),
         ).fetchone()
     finally:
@@ -241,7 +237,7 @@ def get_user_by_username(username):
 def get_user_by_email(email):
     connection = get_connection()
     try:
-        row = connection.execute("SELECT * FROM AuthUsers WHERE email = ?", (email,)).fetchone()
+        row = connection.execute("SELECT * FROM AuthUsers WHERE email = %s", (email,)).fetchone()
     finally:
         connection.close()
     return dict(row) if row else None
@@ -337,8 +333,11 @@ def get_user_analyses(user_id):
 def delete_user_account(user_id):
     connection = get_connection()
     try:
-        connection.execute("DELETE FROM AuthUsers WHERE id = ?", (user_id,))
-        connection.execute("DELETE FROM Analysis WHERE user_id = ?", (user_id,))
+        connection.execute("DELETE FROM UserSkills WHERE user_id = %s", (user_id,))
+        connection.execute("DELETE FROM Analysis WHERE user_id = %s", (user_id,))
+        connection.execute("DELETE FROM PasswordReset WHERE user_id = %s", (user_id,))
+        connection.execute("DELETE FROM Users WHERE id = %s", (user_id,))
+        connection.execute("DELETE FROM AuthUsers WHERE id = %s", (user_id,))
         connection.commit()
     finally:
         connection.close()
@@ -414,7 +413,7 @@ def get_reset_token(token):
     connection = get_connection()
     try:
         row = connection.execute(
-            "SELECT * FROM PasswordReset WHERE token = ? AND used = 0 AND expires_at > datetime('now')",
+            "SELECT * FROM PasswordReset WHERE token = %s AND used = 0 AND expires_at > NOW()",
             (token,),
         ).fetchone()
     finally:
