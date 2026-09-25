@@ -207,7 +207,7 @@ def init_db():
 def create_user(username, password_hash, email=None):
     connection = get_connection()
     try:
-        user_id = connection.execute("INSERT INTO AuthUsers (username, password_hash, email) VALUES (%s, %s, %s) RETURNING id", (username, password_hash, email)).fetchone()[0]
+        user_id = connection.execute("INSERT INTO AuthUsers (username, password_hash, email) VALUES (%s, %s, %s) RETURNING id", (username, password_hash, email)).fetchone()["id"]
         connection.execute(
             "INSERT OR IGNORE INTO Users (id, name, experience_level, target_role) VALUES (%s, %s, %s, %s)",
             (user_id, username, "Beginner", "Software Engineer"),
