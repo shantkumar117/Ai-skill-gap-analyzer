@@ -978,13 +978,11 @@ def _extract_llm_text(result, provider):
 def discover_role_skills_with_ai(role, career_goal=""):
     """Ask the configured LLM which skills a given role typically requires."""
     prompt = (
-        f"You are a technical hiring manager. List the 8 to 10 most important technical skills "
-        f"required for the job role: '{role}'. "
-        f"{'Career focus: ' + career_goal + '. ' if career_goal else ''}"
-        "Return ONLY a valid JSON object with this schema:\n"
-        '{"required_skills": [{"skill_name": "Skill", "importance": "High"}, '
-        '{"skill_name": "Skill", "importance": "Medium"}]}\n'
-        "importance must be High or Medium. No markdown, no extra text."
+        f"You are a technical hiring manager. For role '{role}', list ONLY skills closely related to what the user already knows. "
+        f"If the role is non-technical, use only the user's stated skills and infer 2-3 closely related ones. "
+        f"{('Career focus: ' + career_goal + '. ') if career_goal else ''}"
+        "Return ONLY valid JSON: {\"required_skills\": [{\"skill_name\": \"...\", \"importance\": \"High\"}, ...]}\n"
+        "No extra text."
     )
 
     providers = []
