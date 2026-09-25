@@ -2111,7 +2111,6 @@ def assistant_chat():
     conversation.append({"role": "user", "text": user_text})
     conversation.append({"role": "assistant", "text": result["reply"]})
     session["ai_conversation"] = conversation[-12:]  # keep last 6 turns
-    session.modified = True
     return {"reply": result["reply"], "errors": result.get("errors", [])}
 
 
@@ -2135,7 +2134,6 @@ def assistant_stream():
     # Update session memory
     updated_conv = conversation + [{"role": "user", "text": user_text}, {"role": "assistant", "text": reply}]
     session["ai_conversation"] = updated_conv[-12:]
-    session.modified = True
 
     def stream():
         words = reply.split(" ")
