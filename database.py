@@ -45,9 +45,9 @@ class PGConnectionWrapper:
         self._conn = conn
 
     def execute(self, query, params=()):
-        cur = self._conn.cursor()
-        cur.execute(_adapt_sql_for_pg(query), params or ())
-        return cur
+        self._cur = self._conn.cursor()
+        self._cur.execute(_adapt_sql_for_pg(query), params or ())
+        return self._cur
 
     def executescript(self, script):
         # Schema already created in Supabase; skip SQLite DDL on Postgres.
