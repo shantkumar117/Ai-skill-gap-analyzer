@@ -32,7 +32,7 @@ def _adapt_sql_for_pg(query):
     q = q.replace("datetime('now', '+' || ? || ' hours')", "NOW() + make_interval(hours => %s)")
     q = q.replace("datetime('now', '-30 days')", "NOW() - INTERVAL '30 days'")
     q = q.replace("datetime('now')", "NOW()")
-    q = q.replace("strftime('%Y-%m-%d %H:%M:%S', a.created_at)", "to_char(a.created_at, 'YYYY-MM-DD HH24:MI:SS')")
+    q = q.replace("COALESCE(strftime('%Y-%m-%d %H:%M:%S', a.created_at), datetime('now'))", "COALESCE(to_char(a.created_at, 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))")
     q = q.replace("julianday('now')", "(EXTRACT(EPOCH FROM NOW())/86400.0)")
     q = q.replace("julianday(a.created_at)", "(EXTRACT(EPOCH FROM a.created_at)/86400.0)")
     q = q.replace("MAX(0,", "GREATEST(0,")
@@ -47,6 +47,7 @@ class PGConnectionWrapper:
     def execute(self, query, params=()):
         cur = self._conn.cursor()
         cur.execute(_adapt_sql_for_pg(query), params or ())
+        cur.rowcount = cur.rowcount or -1
         return cur
 
     def executescript(self, script):

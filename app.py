@@ -1295,9 +1295,12 @@ def delete_analysis_route(analysis_id):
 def analysis_detail(analysis_id):
     user_id = session.get("user_id")
     conn = get_connection()
-    row = conn.execute("SELECT result_json FROM Analysis WHERE id = ? AND user_id = ?", (analysis_id, user_id)).fetchone()
+    row = conn.execute("SELECT result_json FROM Analysis WHERE id = %s AND user_id = %s", (analysis_id, user_id)).fetchone()
     conn.close()
-    if not row or not row["result_json"]:
+    if row is None:
+        flash("Not found.", "warning")
+        return redirect(url_for("profile"))
+    if not row.get("result_json"):
         flash("Full result not found for this history.", "warning")
         return redirect(url_for("profile"))
     data = json.loads(row["result_json"])
