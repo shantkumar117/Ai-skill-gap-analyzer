@@ -18,7 +18,7 @@
     </label>
   </div>
 
-  <label>Target job role
+  <label>Target job role <span class="hint">Use either the dropdown OR the custom field below — not both</span>
     <select name="target_role">
       <option value="">Choose a role</option>
       {% for role in roles %}<option>{{ role }}</option>{% endfor %}
