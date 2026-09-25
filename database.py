@@ -316,7 +316,7 @@ def get_user_analyses(user_id):
     connection = get_connection()
     try:
         rows = connection.execute(
-            "SELECT a.id AS analysis_id, au.username AS name, COALESCE(a.target_role, au.username) AS role, a.match_percentage, a.missing_skills, COALESCE(strftime('%Y-%m-%d %H:%M:%S', a.created_at), datetime('now')) AS analysis_date, MAX(0, 30 - CAST((julianday('now') - julianday(a.created_at)) AS INTEGER)) AS days_remaining, a.keep_forever FROM Analysis a JOIN AuthUsers au ON a.user_id = au.id WHERE a.user_id = ? AND a.result_json IS NOT NULL AND a.result_json != '' ORDER BY a.created_at DESC",
+            "SELECT a.id AS analysis_id, au.username AS name, COALESCE(a.target_role, au.username) AS role, a.match_percentage, a.missing_skills, COALESCE(to_char(a.created_at, 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')) AS analysis_date, GREATEST(0, 30 - CAST((EXTRACT(EPOCH FROM NOW())/86400.0 - EXTRACT(EPOCH FROM a.created_at)/86400.0) AS INTEGER)) AS days_remaining, a.keep_forever FROM Analysis a JOIN AuthUsers au ON a.user_id = au.id WHERE a.user_id = %s AND a.result_json IS NOT NULL AND a.result_json != '' ORDER BY a.created_at DESC",
             (user_id,),
         ).fetchall()
     finally:
