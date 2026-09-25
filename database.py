@@ -192,7 +192,7 @@ def init_db():
         for skill_name, importance in skills:
             connection.execute("INSERT OR IGNORE INTO Skills (skill_name) VALUES (?)", (skill_name,))
             exists = connection.execute(
-                "SELECT 1 FROM RoleSkills WHERE role = ? AND skill_name = ?",
+                "SELECT 1 FROM RoleSkills WHERE role = %s AND skill_name = %s",
                 (role, skill_name),
             ).fetchone()
             if not exists:
@@ -290,12 +290,12 @@ def save_dynamic_role_skills(role, skills_list):
 
         connection.execute("INSERT OR IGNORE INTO Skills (skill_name) VALUES (?)", (skill_name,))
         exists = connection.execute(
-            "SELECT 1 FROM RoleSkills WHERE role = ? AND skill_name = ?",
+            "SELECT 1 FROM RoleSkills WHERE role = %s AND skill_name = %s",
             (role, skill_name),
         ).fetchone()
         if not exists:
             connection.execute(
-                "INSERT INTO RoleSkills (role, skill_name, importance) VALUES (?, ?, ?)",
+                "INSERT INTO RoleSkills (role, skill_name, importance) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (role, skill_name, importance),
             )
     connection.commit()
